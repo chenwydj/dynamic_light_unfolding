@@ -63,6 +63,10 @@ nosetests.xml
 coverage.xml
 *.cover
 .hypothesis/
+<<<<<<< HEAD
+=======
+.pytest_cache/
+>>>>>>> 5175490df3774f035e5fb363fc99123c9b68a982
 
 # Translations
 *.mo
@@ -70,9 +74,14 @@ coverage.xml
 
 # Django stuff:
 *.log
+<<<<<<< HEAD
 .static_storage/
 .media/
 local_settings.py
+=======
+local_settings.py
+db.sqlite3
+>>>>>>> 5175490df3774f035e5fb363fc99123c9b68a982
 
 # Flask stuff:
 instance/
