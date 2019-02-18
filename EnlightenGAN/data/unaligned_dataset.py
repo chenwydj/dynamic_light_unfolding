@@ -122,18 +122,31 @@ class UnalignedDataset(BaseDataset):
         # A_gray = 255.0-A_gray
 
         w, h = A_image.size
-        x1 = random.randint(0, w - self.opt.fineSize)
-        y1 = random.randint(0, h - self.opt.fineSize)
-        A_img = A_image.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
-        B_img = B_image.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
-        A_npy = np.array(A_img)
-        B_npy = np.array(B_img)
+        n_try = 0
+            x1 = random.randint(0, w - self.opt.fineSize)
+            y1 = random.randint(0, h - self.opt.fineSize)
+            A_img = A_image.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
+            B_img = B_image.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
+            A_npy = np.array(A_img)
+            B_npy = np.array(B_img)
 
-        r,g,b = A_npy[:, :, 0], A_npy[:, :, 1], A_npy[:, :, 2]
-        value_A = (0.299*r+0.587*g+0.114*b) / 255.
-        value_A = np.sort(value_A.flatten())
-        length = value_A.shape[0]
-        value_A = value_A[int(np.round(length * 0.1)) : int(np.round(length * 0.9))].mean()
+            r,g,b = A_npy[:, :, 0], A_npy[:, :, 1], A_npy[:, :, 2]
+            value_A = (0.299*r+0.587*g+0.114*b) / 255.
+            value_A = np.sort(value_A.flatten())
+            length = value_A.shape[0]
+            value_A = value_A[int(np.round(length * 0.1)) : int(np.round(length * 0.9))].mean()
+            r,g,b = B_npy[:, :, 0], B_npy[:, :, 1], B_npy[:, :, 2]
+            value_B = (0.299*r+0.587*g+0.114*b) / 255.
+            value_B = np.sort(value_B.flatten())
+            length = value_B.shape[0]
+            value_B = value_B[int(np.round(length * 0.1)) : int(np.round(length * 0.9))].mean()
+
+            if int(np.round(value_A)) in self.low_range and int(np.round(value_B)) in self.high_range: break
+            n_try += 1
+        if n_try == self.N_TRY:
+            self.A_paths[index % self.A_size]
+            index = random.randint(0, self.__len__())
+            return self.__getitem__(index)
 
         gray_mask = torch.ones(1, self.opt.fineSize, self.opt.fineSize) * value_A
         A_img_border = A_image.crop((x1-self.opt.fineSize//2, y1-self.opt.fineSize//2, x1+2*self.opt.fineSize, y1+2*self.opt.fineSize))
