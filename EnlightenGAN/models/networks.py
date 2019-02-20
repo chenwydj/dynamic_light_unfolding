@@ -916,8 +916,8 @@ class Unet_Res_resize_conv(nn.Module):
         ch = 64; k = 6
         # self.conv1_1 = nn.Conv2d(4, ch, 3, padding=p)
         if opt.self_attention:
-            self.conv1_1 = nn.Conv2d(4, ch, 3, padding=p)
-            # self.conv1_1 = nn.Conv2d(3, ch, 3, padding=p)
+            self.conv1_1 = nn.Conv2d(4+11+1, ch, 3, padding=p)
+            # self.conv1_1 = nn.Conv2d(4, ch, 3, padding=p)
             self.downsample_1 = nn.MaxPool2d(2)
             self.downsample_2 = nn.MaxPool2d(2)
             self.downsample_3 = nn.MaxPool2d(2)
@@ -1042,7 +1042,7 @@ class Unet_Res_resize_conv(nn.Module):
         output = output.permute(0, 3, 1, 2)
         return output
 
-    def forward(self, input, gray):
+    def forward(self, input, gray, seg_mask, edges):
         flag = 0
         if input.size()[3] > 2200:
             avg = nn.AvgPool2d(2)
@@ -1052,6 +1052,8 @@ class Unet_Res_resize_conv(nn.Module):
             # pass
         input, pad_left, pad_right, pad_top, pad_bottom = pad_tensor(input)
         gray, pad_left, pad_right, pad_top, pad_bottom = pad_tensor(gray)
+        seg_mask, pad_left, pad_right, pad_top, pad_bottom = pad_tensor(seg_mask)
+        edges, pad_left, pad_right, pad_top, pad_bottom = pad_tensor(edges)
         if self.opt.self_attention:
             gray_2 = self.downsample_1(gray)
             gray_3 = self.downsample_2(gray_2)
@@ -1059,8 +1061,8 @@ class Unet_Res_resize_conv(nn.Module):
             gray_5 = self.downsample_4(gray_4)
         if self.opt.use_norm == 1:
             if self.opt.self_attention:
-                x = self.bn1_1(self.LReLU1_1(self.conv1_1(torch.cat((input, gray), 1))))
-                # x = self.bn1_1(self.LReLU1_1(self.conv1_1(input)))
+                x = self.bn1_1(self.LReLU1_1(self.conv1_1(torch.cat((input, gray, seg_mask, edges), 1))))
+                # x = self.bn1_1(self.LReLU1_1(self.conv1_1(torch.cat((input, gray), 1))))
             else:
                 x = self.bn1_1(self.LReLU1_1(self.conv1_1(input)))
             conv1 = self.bn1_2(self.LReLU1_2(self.conv1_2(x)))

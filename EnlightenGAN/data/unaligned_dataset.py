@@ -9,7 +9,8 @@ from PIL import Image
 import PIL
 from pdb import set_trace as st
 import numpy as np
-from skimage import color
+from skimage import color, feature
+from skimage.filters import gaussian
 
 
 def pad_tensor(input):
@@ -68,14 +69,18 @@ class UnalignedDataset(BaseDataset):
         self.opt = opt
         self.root = opt.dataroot
         ##############################
-        self.dir_A = os.path.join(opt.dataroot)#, opt.phase + 'A')
-        self.dir_B = os.path.join(opt.dataroot)#, opt.phase + 'B')
-        # if not 'images' in self.opt.name:
-        #     self.dir_A = os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/0_75/", opt.phase)
-        #     self.dir_B = os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/100_105/", opt.phase)
-        # else:
-        #     self.dir_A = os.path.join("/ssd1/chenwy/bdd100k/images_luminance/100k/0_75/", opt.phase)
-        #     self.dir_B = os.path.join("/ssd1/chenwy/bdd100k/images_luminance/100k/100_105/", opt.phase)
+        # self.dir_A = os.path.join(opt.dataroot)#, opt.phase + 'A')
+        # self.dir_B = os.path.join(opt.dataroot)#, opt.phase + 'B')
+        if not 'images' in self.opt.name:
+            self.dir_A = os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/0_100/", opt.phase)
+            self.dir_B = os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/100_255/", opt.phase)
+            # self.dir_A = os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/0_75/", opt.phase)
+            # self.dir_B = os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/100_105/", opt.phase)
+        else:
+            self.dir_A = os.path.join("/ssd1/chenwy/bdd100k/images_luminance/100k/0_100/", opt.phase)
+            self.dir_B = os.path.join("/ssd1/chenwy/bdd100k/images_luminance/100k/100_255/", opt.phase)
+            # self.dir_A = os.path.join("/ssd1/chenwy/bdd100k/images_luminance/100k/0_75/", opt.phase)
+            # self.dir_B = os.path.join("/ssd1/chenwy/bdd100k/images_luminance/100k/100_105/", opt.phase)
         ##############################
 
         self.A_paths = make_dataset(self.dir_A)
@@ -101,12 +106,12 @@ class UnalignedDataset(BaseDataset):
         # self._reinit_A_paths()
         #################################
 
-        self.low_range = range(0, 75)
-        self.high_range = range(100, 110)
+        self.low_range = range(55, 70)
+        self.high_range = range(110, 125)
         self.N_TRY = 20
 
-    def __getitem__(self, index):
-        A_path = self.A_paths[index % self.A_size]
+    def __getitem__(self, index_A):
+        A_path = self.A_paths[index_A % self.A_size]
         index_B = random.randint(0, self.B_size - 1)
         B_path = self.B_paths[index_B % self.B_size]
 
@@ -122,35 +127,65 @@ class UnalignedDataset(BaseDataset):
         # A_gray = 255.0-A_gray
 
         w, h = A_image.size
-        x1 = random.randint(0, w - self.opt.fineSize)
-        y1 = random.randint(0, h - self.opt.fineSize)
-        A_img = A_image.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
-        B_img = B_image.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
-        A_npy = np.array(A_img)
-        B_npy = np.array(B_img)
+        # patch luminance & mask class diversity selection ###########################
+        n_try = 0
+        while n_try < self.N_TRY:
+            x1 = random.randint(0, w - self.opt.fineSize)
+            y1 = random.randint(0, h - self.opt.fineSize)
+            A_img = A_image.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
+            B_img = B_image.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
+            A_npy = np.array(A_img)
+            B_npy = np.array(B_img)
 
-        r,g,b = A_npy[:, :, 0], A_npy[:, :, 1], A_npy[:, :, 2]
-        value_A = (0.299*r+0.587*g+0.114*b) / 255.
-        value_A = np.sort(value_A.flatten())
-        length = value_A.shape[0]
-        value_A = value_A[int(np.round(length * 0.1)) : int(np.round(length * 0.9))].mean()
+            r,g,b = A_npy[:, :, 0], A_npy[:, :, 1], A_npy[:, :, 2]
+            value_A = (0.299*r+0.587*g+0.114*b) / 255.
+            value_A = np.sort(value_A.flatten())
+            length = value_A.shape[0]
+            value_A = value_A[int(np.round(length * 0.1)) : int(np.round(length * 0.9))].mean()
+            if int(np.round(value_A*255)) not in self.low_range: n_try += 1; continue
+
+            r,g,b = B_npy[:, :, 0], B_npy[:, :, 1], B_npy[:, :, 2]
+            value_B = (0.299*r+0.587*g+0.114*b) / 255.
+            value_B = np.sort(value_B.flatten())
+            length = value_B.shape[0]
+            value_B = value_B[int(np.round(length * 0.1)) : int(np.round(length * 0.9))].mean()
+            if int(np.round(value_B*255)) not in self.high_range: n_try += 1; continue
+
+            if not 'images' in self.opt.name:
+                # mask = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", "train", os.path.splitext(A_path.split("/")[-1])[0] + '_train_id.png'))
+                mask = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", self.opt.phase, os.path.splitext(A_path.split("/")[-1])[0] + '_train_id.png'))
+                mask = np.array(mask.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))).astype('int32') # cropped mask for light_enhance_AB/seg
+                unique, counts = np.unique(mask, return_counts=True)
+                if len(unique) < 2 or (counts / counts.sum()).max() > 0.7: n_try += 1; continue
+                mask = self._mask_transform(mask)
+            else:
+                mask = torch.zeros(1)
+            
+            break
+        
+        if n_try == self.N_TRY:
+            # if int(np.round(value_A)) not in self.low_range:
+            #     self.A_paths.pop(index_A % self.A_size)
+            #     self.A_size -= 1
+            # if int(np.round(value_B)) not in self.high_range:
+            #     self.B_paths.pop(index_B % self.B_size)
+            #     self.B_size -= 1
+            index_A = random.randint(0, self.__len__())
+            return self.__getitem__(index_A)
+        ##########################################################################
 
         gray_mask = torch.ones(1, self.opt.fineSize, self.opt.fineSize) * value_A
         A_img_border = A_image.crop((x1-self.opt.fineSize//2, y1-self.opt.fineSize//2, x1+2*self.opt.fineSize, y1+2*self.opt.fineSize))
         A_Lab = torch.Tensor(color.rgb2lab(A_npy) / 100).permute([2, 0, 1])
+        A_npy = gaussian(A_npy, sigma=2, multichannel=True)
+        r,g,b = A_npy[:, :, 0], A_npy[:, :, 1], A_npy[:, :, 2]
+        A_npy = 0.299*r+0.587*g+0.114*b
+        edges_A = torch.unsqueeze(torch.from_numpy(feature.canny(A_npy, sigma=2).astype("float32")), 0)
 
         A_img = self.transform(A_img)
         A_img_border = self.transform(A_img_border)
         B_img = self.transform(B_img)
 
-        if not 'images' in self.opt.name:
-            mask = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", "train", os.path.splitext(A_path.split("/")[-1])[0] + '_train_id.png'))
-            # mask = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", self.opt.phase, os.path.splitext(A_path.split("/")[-1])[0] + '_train_id.png'))
-            mask = mask.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize)) # cropped mask for light_enhance_AB/seg
-            mask = self._mask_transform(mask)
-        else:
-            mask = torch.zeros(1)
-        
         if self.opt.resize_or_crop == 'no':
             r,g,b = A_img[0]+1, A_img[1]+1, A_img[2]+1
             A_gray = 1. - (0.299*r+0.587*g+0.114*b)/2.
@@ -192,7 +227,7 @@ class UnalignedDataset(BaseDataset):
         return {'A': A_img, 'B': B_img, 'A_gray': A_gray, 'input_img': input_img,
                 'A_paths': A_path, 'B_paths': B_path, 'mask': mask,
                 'A_border': A_img_border, 'A_gray_border': A_gray_border,
-                'A_Lab': A_Lab, 'gray_mask': gray_mask
+                'A_Lab': A_Lab, 'gray_mask': gray_mask, 'edges_A': edges_A
                 }
 
     def __len__(self):

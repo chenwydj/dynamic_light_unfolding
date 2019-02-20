@@ -14,12 +14,12 @@ from torch.utils import data
 import torchvision.transforms as transform
 from torch.nn.parallel.scatter_gather import gather
 
-import encoding.utils as utils
-from encoding.nn import SegmentationLosses, BatchNorm2d
-from encoding.nn import SegmentationMultiLosses
-from encoding.parallel import DataParallelModel, DataParallelCriterion
-from encoding.datasets import get_segmentation_dataset
-from encoding.models import get_segmentation_model
+import bdd.encoding.utils as utils
+from bdd.encoding.nn import SegmentationLosses, BatchNorm2d
+from bdd.encoding.nn import SegmentationMultiLosses
+from bdd.encoding.parallel import DataParallelModel, DataParallelCriterion
+from bdd.encoding.datasets import get_segmentation_dataset
+from bdd.encoding.models import get_segmentation_model
 
 from option import Options
 

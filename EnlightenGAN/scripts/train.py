@@ -12,7 +12,7 @@ opt = parser.parse_args()
 single_unet_conv_add_vary_attention_Tresidual_bs32_BN_nonormDlayer5_4_final_ragan_lsgan_32D_PV_5_vgg_relu5_1
 --fineSize 640 \
 --patchSize 64 \
---n_layers_D 5 # 5 for 720, 4 for 260, 3 for 180, 2 for 90\
+--n_layers_D 5 # 5 for 640, 4 for 320, 3 for 160, 2 for 80\
 --n_layers_patchD 4 \
 '''
 
@@ -34,21 +34,21 @@ if opt.train:
 	os.system("python EnlightenGAN/train.py \
 		--dataroot /ssd1/chenwy/bdd100k/light_enhance_AB/seg_85/ \
 		--no_dropout \
-		--name bdd.finetune_day100.105.night0.75_G.unet4.resblk6_latent.gamma_D.0.5.DSeg.layer3.2_vgg0.2_180px_align \
+		--name bdd.seg10_day110.125.night55.70_G.segargmax.conf11.edge.unet4.resblk6_latent.gamma_D.boundary.layer3.2_vgg0.3_180px_align \
 		--model single \
 		--dataset_mode unaligned \
 		--which_model_netG sid_unet_res_resize \
         --which_model_netD no_norm_4 \
         --patchD \
         --patch_vgg \
-        --patchD_3 5 \
+        --patchD_3 7 \
         --n_layers_D 3 \
         --n_layers_patchD 2 \
 		--fineSize 180 \
-        --patchSize 36 \
+        --patchSize 60 \
 		--resize_or_crop='no' \
 		--skip 1 \
-		--batchSize 12 \
+		--batchSize 15 \
 		--use_norm 1 \
 		--use_wgan 0 \
         --use_ragan \
@@ -59,8 +59,7 @@ if opt.train:
 		--vgg 1 \
         --vgg_choose relu5_1 \
 		--gpu_ids 0,1,2 \
-		--continue_train \
-		--save_epoch_freq 10\
+		--save_epoch_freq 20\
 		--display_port=" + opt.port)
 
 elif opt.test:
