@@ -50,8 +50,6 @@ from EnlightenGAN.util import html
 opt_gan = TestOptions().parse()
 # opt_gan.dataroot = "/ssd1/chenwy/bdd100k/seg/images/train"
 opt_gan.dataroot = "/ssd1/chenwy/bdd100k/seg_luminance/0_75/train"
-# opt_gan.name = "single_unet_conv_add_vary_attention_Tresidual_bs32_BN_nonormDlayer5_4_final_ragan_lsgan_32D_PV_5_vgg_relu5_1_360px_align"
-opt_gan.name = "bdd.finetune.seg5_day100.105.night0.75_G.unet4.resblk6_latent.gamma_D.layer3.2_vgg0.5_180px_align"
 opt_gan.model = "single"
 opt_gan.which_direction = "AtoB"
 opt_gan.no_dropout = True
@@ -71,7 +69,6 @@ opt_gan.nThreads = 1 # test code only supports nThreads = 1
 opt_gan.serial_batches = True  # no shuffle
 opt_gan.no_flip = True  # no flip
 
-
 evaluation = False
 if evaluation:
     opt_gan.batchSize = 1 # test code only supports batchSize = 1
@@ -80,7 +77,15 @@ else:
 
 data_loader = CreateDataLoader(opt_gan)
 dataset = data_loader.load_data()
-gan = create_model(opt_gan)
+
+# opt_gan.name = "single_unet_conv_add_vary_attention_Tresidual_bs32_BN_nonormDlayer5_4_final_ragan_lsgan_32D_PV_5_vgg_relu5_1_360px_align"
+# opt_gan.name = "bdd.finetune.seg5_day100.105.night0.75_G.unet4.resblk6_latent.gamma_D.layer3.2_vgg0.5_180px_align"
+opt_gan.name = "bdd.seg10_day100.110.night70.80_G.segargmax.conf11.edge.unet4.resblk6_latent.gamma_D.boundary.layer3.2_vgg0.3_180px_align"
+gan1 = create_model(opt_gan)
+opt_gan.name = "bdd.seg10_day110.125.night55.70_G.segargmax.conf11.edge.unet4.resblk6_latent.gamma_D.boundary.layer3.2_vgg0.3_180px_align"
+gan2 = create_model(opt_gan)
+opt_gan.name = "bdd.seg10_day125.255.night0.55_G.segargmax.conf11.edge.unet4.resblk6_latent.gamma_D.boundary.layer3.2_vgg0.3_180px_align"
+gan3 = create_model(opt_gan)
 
 visualizer = Visualizer(opt_gan)
 # create website
@@ -239,16 +244,19 @@ def train(epoch, reward_history, r_neg, r_pos):
                 A = data["A"][j:j+1]; A_gray = data["A_gray"][j:j+1]
                 score0 = get_score(A, data["mask"][j])
                 niqe0 = get_niqe(A)
-                gan.set_input_A(A, A_gray)
                 if actions[j] > 0:
-                    for _ in range(actions[j]):
-                        # GAN prediction ###########################
-                        _, fake_B_tensor = gan.predict()
-                        # GAN reset image data #########################
-                        A = fake_B_tensor.clamp(-1, 1)
-                        r,g,b = A[0:1, 0:1]+1, A[0:1, 1:2]+1, A[0:1, 2:3]+1
-                        A_gray = 1. - (0.299*r+0.587*g+0.114*b)/2. # h, w
-                        gan.set_input_A(A, A_gray)
+                    if actions[j] == 1:
+                        gan1.set_input_A(A, A_gray)
+                        _, fake_B_tensor = gan1.predict()
+                    elif actions[j] == 2:
+                        gan2.set_input_A(A, A_gray)
+                        _, fake_B_tensor = gan2.predict()
+                    elif actions[j] == 3:
+                        gan3.set_input_A(A, A_gray)
+                        _, fake_B_tensor = gan3.predict()
+                    A = fake_B_tensor.clamp(-1, 1)
+                    r,g,b = A[0:1, 0:1]+1, A[0:1, 1:2]+1, A[0:1, 2:3]+1
+                    A_gray = 1. - (0.299*r+0.587*g+0.114*b)/2. # h, w
                     # Seg & NIQE reward ######################################
                     score1 = get_score(A, data["mask"][j])
                     # Reward ####################################
@@ -261,7 +269,7 @@ def train(epoch, reward_history, r_neg, r_pos):
                     # reward_history[0] = reward_history[0] * reward_history[1] + reward * (1 - reward_history[1])
                     rewards[j] = gamma * (reward - reward_history[0])
                 else:
-                    _, fake_B_tensor = gan.predict()
+                    _, fake_B_tensor = gan1.predict()
                     # GAN reset image data #########################
                     A = fake_B_tensor.clamp(-1, 1)
                     # Seg & NIQE reward ######################################
