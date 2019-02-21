@@ -127,6 +127,28 @@ class UnalignedDataset(BaseDataset):
         # A_gray = 255.0-A_gray
 
         w, h = A_image.size
+        # without luminance selection #####################
+        # x1 = random.randint(0, w - self.opt.fineSize)
+        # y1 = random.randint(0, h - self.opt.fineSize)
+        # A_img = A_image.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
+        # B_img = B_image.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
+        # A_npy = np.array(A_img)
+        # B_npy = np.array(B_img)
+
+        # r,g,b = A_npy[:, :, 0], A_npy[:, :, 1], A_npy[:, :, 2]
+        # value_A = (0.299*r+0.587*g+0.114*b) / 255.
+        # value_A = np.sort(value_A.flatten())
+        # length = value_A.shape[0]
+        # value_A = value_A[int(np.round(length * 0.1)) : int(np.round(length * 0.9))].mean()
+
+        # if not 'images' in self.opt.name:
+        #     # mask = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", "train", os.path.splitext(A_path.split("/")[-1])[0] + '_train_id.png'))
+        #     mask = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", self.opt.phase, os.path.splitext(A_path.split("/")[-1])[0] + '_train_id.png'))
+        #     mask = np.array(mask.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))).astype('int32') # cropped mask for light_enhance_AB/seg
+        #     mask = self._mask_transform(mask)
+        # else:
+        #     mask = torch.zeros(1)
+        ###################################################
         # patch luminance & mask class diversity selection ###########################
         n_try = 0
         while n_try < self.N_TRY:

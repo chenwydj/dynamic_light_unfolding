@@ -217,8 +217,9 @@ class SingleModel(BaseModel):
             self.real_A = (self.real_A - torch.min(self.real_A))/(torch.max(self.real_A) - torch.min(self.real_A))
         # print(np.transpose(self.real_A.data[0].cpu().float().numpy(),(1,2,0))[:2][:2][:])
         if self.opt.skip == 1:
-            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray)
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(seg(self.real_A)[0].argmax(1), 19))
+            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, torch.index_select(one_hot(seg(self.real_A)[0].argmax(1), 19), 1, self.seg_index), self.edges_A)
         else:
             self.fake_B = self.netG_A.forward(self.real_A, self.real_A_gray)
         # self.rec_A = self.netG_B.forward(self.fake_B)
