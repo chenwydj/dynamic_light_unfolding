@@ -250,7 +250,7 @@ class SingleModel(BaseModel):
         return self.image_paths
 
 
-    def forward(self, seg):
+    def forward(self, seg, epoch):
         self.real_A = Variable(self.input_A)
         self.real_B = Variable(self.input_B)
         self.real_A_gray = Variable(self.input_A_gray)
@@ -261,13 +261,18 @@ class SingleModel(BaseModel):
         if self.opt.input_linear:
             self.real_A = (self.real_A - torch.min(self.real_A))/(torch.max(self.real_A) - torch.min(self.real_A))
         if self.opt.skip == 1:
+            if self.use_seg_D:
+                self.real_B_Seg = seg(self.real_B.clamp(-1, 1))[0]
             self.real_A_Seg = seg(self.real_img.clamp(-1, 1))[0]
-            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, torch.index_select(F.softmax(self.real_A_Seg, dim=1), 1, self.seg_index), self.edges_A)
-            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, torch.index_select(one_hot(self.real_A_Seg.argmax(1), 19), 1, self.seg_index), self.edges_A)
-            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.real_A_Seg.argmax(1), 19))
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.mask + 1, 20))
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, torch.index_select(F.softmax(self.real_A_Seg, dim=1), 1, self.seg_index), self.edges_A)
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, torch.index_select(one_hot(self.real_A_Seg.argmax(1), 19), 1, self.seg_index), self.edges_A)
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, F.softmax(self.real_A_Seg, dim=1), self.edges_A)
+            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.real_A_Seg.argmax(1), 19), self.edges_A)
             self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
-            self.real_B_Seg = seg(self.real_B.clamp(-1, 1))[0]
+            for i in range(min((epoch+1)//80, 8)): # 3roll/200epoch/6batch for softmax, 8/80/15 for one_hot
+                self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.fake_B_Seg.argmax(1), 19), self.edges_A)
+                self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
         else:
             self.fake_B = self.netG_A.forward(self.real_img, self.real_A_gray)
         if self.opt.patchD:
@@ -447,7 +452,7 @@ class SingleModel(BaseModel):
 
                 self.mIoU_delta_mean = 0.8 * self.mIoU_delta_mean + 0.2 * np.round(self.mIoU-self.mIoU_ori, 3) 
 
-            print("G:", self.loss_G.data[0], "mIoU-origin:", np.round(self.mIoU-self.mIoU_ori, 3), "mean:", np.round(self.mIoU_delta_mean, 3), "lum:", 255*(1 - self.input_A_gray).mean(), "epoch:", epoch)
+            print("G:", self.loss_G.data[0], "mIoU gain:", np.round(self.mIoU-self.mIoU_ori, 3), "mean:", np.round(self.mIoU_delta_mean, 3), "lum:", 255*(1 - self.input_A_gray).mean(), "epoch:", epoch)
 
         ##################################
 
@@ -511,7 +516,7 @@ class SingleModel(BaseModel):
 
     def optimize_parameters(self, epoch, seg=None, seg_criterion=None):
         # forward
-        self.forward(seg)
+        self.forward(seg, epoch)
         # G_A and G_B
         self.optimizer_G.zero_grad()
         if not 'images' in self.opt.name:
@@ -541,13 +546,13 @@ class SingleModel(BaseModel):
             if 'images' in self.opt.name:
                 return OrderedDict([('D_A', D_A), ('G_A', G_A), ("vgg", vgg), ("D_P", D_P)])
             else:
-                return OrderedDict([('D_A', D_A), ('G_A', G_A), ("vgg", vgg), ("D_P", D_P), ("mIoU-origin", np.round(self.mIoU-self.mIoU_ori, 3))])
+                return OrderedDict([('D_A', D_A), ('G_A', G_A), ("vgg", vgg), ("D_P", D_P), ("mIoU gain", np.round(self.mIoU-self.mIoU_ori, 3))])
         elif self.opt.fcn > 0:
             fcn = self.loss_fcn_b.data[0]/self.opt.fcn if self.opt.fcn > 0 else 0
             if 'images' in self.opt.name:
                 return OrderedDict([('D_A', D_A), ('G_A', G_A), ("fcn", fcn), ("D_P", D_P)])
             else:
-                return OrderedDict([('D_A', D_A), ('G_A', G_A), ("fcn", fcn), ("D_P", D_P), ("mIoU-origin", np.round(self.mIoU-self.mIoU_ori, 3))])
+                return OrderedDict([('D_A', D_A), ('G_A', G_A), ("fcn", fcn), ("D_P", D_P), ("mIoU gain", np.round(self.mIoU-self.mIoU_ori, 3))])
         
 
     def get_current_visuals(self):

@@ -106,8 +106,8 @@ class UnalignedDataset(BaseDataset):
         # self._reinit_A_paths()
         #################################
 
-        self.low_range = range(55, 70)
-        self.high_range = range(110, 125)
+        self.low_range = range(0, 60)
+        self.high_range = range(100, 255)
         self.N_TRY = 20
 
     def __getitem__(self, index_A):

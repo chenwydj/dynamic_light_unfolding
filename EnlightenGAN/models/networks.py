@@ -916,7 +916,7 @@ class Unet_Res_resize_conv(nn.Module):
         ch = 64; k = 6
         # self.conv1_1 = nn.Conv2d(4, ch, 3, padding=p)
         if opt.self_attention:
-            self.conv1_1 = nn.Conv2d(4+11+1, ch, 3, padding=p)
+            self.conv1_1 = nn.Conv2d(4+19+1, ch, 3, padding=p)
             # self.conv1_1 = nn.Conv2d(4, ch, 3, padding=p)
             self.downsample_1 = nn.MaxPool2d(2)
             self.downsample_2 = nn.MaxPool2d(2)
