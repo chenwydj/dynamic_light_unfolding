@@ -207,7 +207,7 @@ class SingleModel(BaseModel):
         self.real_B = Variable(self.input_B, volatile=True)
 
 
-    def predict(self, seg):
+    def predict(self, seg=None):
         self.real_A = Variable(self.input_A, volatile=True)
         self.real_A_gray = Variable(self.input_A_gray, volatile=True)
         if self.opt.noise > 0:
@@ -217,6 +217,7 @@ class SingleModel(BaseModel):
             self.real_A = (self.real_A - torch.min(self.real_A))/(torch.max(self.real_A) - torch.min(self.real_A))
         # print(np.transpose(self.real_A.data[0].cpu().float().numpy(),(1,2,0))[:2][:2][:])
         if self.opt.skip == 1:
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(self.mask + 1, 20)[:, 1:, :, :])
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(seg(self.real_A)[0].argmax(1), 19))
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, torch.index_select(one_hot(seg(self.real_A)[0].argmax(1), 19), 1, self.seg_index), self.edges_A)
@@ -338,7 +339,7 @@ class SingleModel(BaseModel):
                     self.input_patch_1_Seg.append(seg(self.input_patch_tmp[-1].clamp(-1, 1))[0])
 
 
-    def backward_G(self, epoch, seg_criterion=None):
+    def backward_G(self, epoch, seg_criterion=None, gan_gt=None):
         # self.loss_G_A = torch.zeros(1).cuda()
         pred_fake = self.netD_A.forward(self.fake_B)
         if self.use_seg_D:
@@ -434,7 +435,7 @@ class SingleModel(BaseModel):
             self.loss_G = self.loss_G_A + self.loss_fcn_b*vgg_w
         # self.loss_G = self.L1_AB + self.L1_BA
 
-        ##################################
+        ## Seg Loss ################################
         # if seg is not None:
         if seg_criterion is not None:
             # inter, union = utils_seg.batch_intersection_union(seg_outputs.data, self.mask, 19)
@@ -462,8 +463,12 @@ class SingleModel(BaseModel):
             self.loss_Seg = seg_criterion(self.fake_B_Seg, self.mask)
             lambd = 10
             self.loss_G += (lambd * self.loss_Seg)
-
-        ##################################
+        ############################################
+        ## GAN_GT Loss ################################
+        if gan_gt is not None:
+            with torch.no_grad():
+                self.fake_B, self.latent_real_A = gan_gt.module.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.mask + 1, 20))
+        ############################################
 
         self.loss_G.backward(retain_graph=True)
 

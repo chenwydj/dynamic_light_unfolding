@@ -1,5 +1,6 @@
 import time
 import os
+import torch
 from options.test_options import TestOptions
 from data.data_loader import CreateDataLoader
 from models.models import create_model
@@ -32,12 +33,13 @@ transformer = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-for i, data in enumerate(tqdm(dataset)):
-    model.set_input(data)
-    visuals, _ = model.predict()
-    img_path = model.get_image_paths()
-    # print('process image... %s' % img_path)
-    save_image(visuals['fake_B'], "/ssd1/chenwy/bdd100k/images_enhanced/100k/val/" + img_path[0].split('/')[-1])
-    # visualizer.save_images(webpage, visuals, img_path)
+with torch.no_grad():
+    for i, data in enumerate(tqdm(dataset)):
+        model.set_input(data)
+        visuals, _ = model.predict()
+        img_path = model.get_image_paths()
+        # print('process image... %s' % img_path)
+        save_image(visuals['fake_B'], "/ssd1/chenwy/bdd100k/images_enhanced/100k/val/" + img_path[0].split('/')[-1])
+        # visualizer.save_images(webpage, visuals, img_path)
 
 webpage.save()
