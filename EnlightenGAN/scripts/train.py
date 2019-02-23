@@ -34,7 +34,7 @@ if opt.train:
 	os.system("python EnlightenGAN/train.py \
 		--dataroot /ssd1/chenwy/bdd100k/light_enhance_AB/seg_85/ \
 		--no_dropout \
-		--name bdd.seg10_day100.255.night0.60_G.roll0.8.segargmax.edge.unet4.resblk6_latent.gamma_D.boundary.layer3.2_vgg0.3_180px_align \
+		--name bdd.seg10.confmask0.8_day100.255.night0.60_G.roll0.8.segargmax.edge.unet4.resblk6_latent.gamma_D.boundary.layer3.2_vgg0.3_180px_align \
 		--model single \
 		--dataset_mode unaligned \
 		--which_model_netG sid_unet_res_resize \

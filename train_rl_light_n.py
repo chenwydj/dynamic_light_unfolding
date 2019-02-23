@@ -408,10 +408,10 @@ def evaluate(mode="patch"): # mode="origin"|"gan"|"patch"
                         # gan.set_input(data)
                         # visuals, fake_B_tensor = gan.predict()
                         # data = image_cycle(data, visuals)
-                        for n in range(N):
+                        for _ in range(N):
                             # GAN prediction ###########################
                             gan.set_input(data)
-                            visuals, fake_B_tensor = gan.predict()
+                            visuals, fake_B_tensor = gan.predict(seg)
                             # GAN reset image data #########################
                             data = image_cycle(data, visuals)
                         image_new[0:1, :, y: y + crop_size, x: x + crop_size] += data["A"]

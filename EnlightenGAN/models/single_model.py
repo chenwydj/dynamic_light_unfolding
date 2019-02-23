@@ -219,7 +219,13 @@ class SingleModel(BaseModel):
         if self.opt.skip == 1:
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(seg(self.real_A)[0].argmax(1), 19))
-            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, torch.index_select(one_hot(seg(self.real_A)[0].argmax(1), 19), 1, self.seg_index), self.edges_A)
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, torch.index_select(one_hot(seg(self.real_A)[0].argmax(1), 19), 1, self.seg_index), self.edges_A)
+
+            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(seg(self.real_A)[0].argmax(1), 19), self.edges_A)
+            self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
+            for _ in range(3): # 3roll/100epoch/6batch for softmax, 8/80/15 for one_hot
+                self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(self.fake_B_Seg.argmax(1), 19), self.edges_A)
+                self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
         else:
             self.fake_B = self.netG_A.forward(self.real_A, self.real_A_gray)
         # self.rec_A = self.netG_B.forward(self.fake_B)
@@ -270,9 +276,11 @@ class SingleModel(BaseModel):
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, F.softmax(self.real_A_Seg, dim=1), self.edges_A)
             self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.real_A_Seg.argmax(1), 19), self.edges_A)
             self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
-            for i in range(min((epoch+1)//80, 8)): # 3roll/200epoch/6batch for softmax, 8/80/15 for one_hot
+            self.confident_mask = (F.softmax(self.fake_B_Seg, dim=1).max(1)[0] > 0.8)
+            for i in range(min((epoch+1)//80, 8)): # 3roll/100epoch/6batch for softmax, 8/80/15 for one_hot
                 self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.fake_B_Seg.argmax(1), 19), self.edges_A)
                 self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
+                self.confident_mask = (F.softmax(self.fake_B_Seg, dim=1).max(1)[0] > 0.8)
         else:
             self.fake_B = self.netG_A.forward(self.real_img, self.real_A_gray)
         if self.opt.patchD:
@@ -429,12 +437,6 @@ class SingleModel(BaseModel):
         ##################################
         # if seg is not None:
         if seg_criterion is not None:
-            # seg_outputs = seg(self.fake_B)[0]
-            # self.loss_Seg = seg_criterion(seg_outputs, self.mask)
-            self.loss_Seg = seg_criterion(self.fake_B_Seg, self.mask)
-            lambd = 10
-            self.loss_G += (lambd * self.loss_Seg)
-
             # inter, union = utils_seg.batch_intersection_union(seg_outputs.data, self.mask, 19)
             inter, union = utils_seg.batch_intersection_union(self.fake_B_Seg.data, self.mask, 19)
             idx = union > 0
@@ -453,6 +455,13 @@ class SingleModel(BaseModel):
                 self.mIoU_delta_mean = 0.8 * self.mIoU_delta_mean + 0.2 * np.round(self.mIoU-self.mIoU_ori, 3) 
 
             print("G:", self.loss_G.data[0], "mIoU gain:", np.round(self.mIoU-self.mIoU_ori, 3), "mean:", np.round(self.mIoU_delta_mean, 3), "lum:", 255*(1 - self.input_A_gray).mean(), "epoch:", epoch)
+
+            # seg_outputs = seg(self.fake_B)[0]
+            # self.loss_Seg = seg_criterion(seg_outputs, self.mask)
+            self.mask[self.confident_mask < 1] = -1 # ignore -1 on inconfident pixels
+            self.loss_Seg = seg_criterion(self.fake_B_Seg, self.mask)
+            lambd = 10
+            self.loss_G += (lambd * self.loss_Seg)
 
         ##################################
 
