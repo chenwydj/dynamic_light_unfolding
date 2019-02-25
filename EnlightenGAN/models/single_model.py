@@ -15,6 +15,9 @@ import random
 from . import networks
 import sys
 import bdd.encoding.utils as utils_seg
+from utils.perceptual_loss import MSSSIM
+
+msssim_loss = MSSSIM()
 
 
 def one_hot(index, classes):
@@ -48,6 +51,8 @@ class SingleModel(BaseModel):
         self.edges_A = torch.cuda.FloatTensor(nb, 1, size, size)
         # self.seg_index = torch.LongTensor([0, 2, 8, 10, 11, 13]).cuda()
         self.seg_index = torch.LongTensor([0, 1, 2, 5, 8, 9, 10, 11, 13, 14, 15]).cuda()
+        self.A_gt = self.Tensor(nb, opt.input_nc, size, size)
+        self.A_boundary = self.Tensor(nb, 1, size, size)
 
         self.adv_image = 1 if 'images' in self.opt.name else 0.5
         self.mIoU_delta_mean = 0
@@ -183,10 +188,13 @@ class SingleModel(BaseModel):
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
         self.mask.resize_(input['mask'].size()).copy_(input['mask'])
         self.edges_A.resize_(input['edges_A'].size()).copy_(input['edges_A'])
+        self.A_gt.resize_(input['A_gt'].size()).copy_(input['A_gt'])
+        self.A_boundary.resize_(input['A_boundary'].size()).copy_(input['A_boundary'])
 
-    def set_input_A(self, A, A_gray):
+    def set_input_A(self, A, A_gray, edges_A):
         self.input_A.resize_(A.size()).copy_(A)
         self.input_A_gray.resize_(A_gray.size()).copy_(A_gray)
+        self.edges_A.resize_(edges_A.size()).copy_(edges_A)
 
     
     def test(self):
@@ -222,10 +230,14 @@ class SingleModel(BaseModel):
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(seg(self.real_A)[0].argmax(1), 19))
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, torch.index_select(one_hot(seg(self.real_A)[0].argmax(1), 19), 1, self.seg_index), self.edges_A)
 
+            self.real_A_Seg = (F.softmax(seg(self.real_A.clamp(-1, 1))[0], dim=1) + F.softmax(seg(self.real_A.clamp(-1, 1).flip(3))[0], dim=1)) / 2
             self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(seg(self.real_A)[0].argmax(1), 19), self.edges_A)
-            self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, (self.real_A_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
+            # self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
+            self.fake_B_Seg = (F.softmax(seg(self.fake_B.clamp(-1, 1))[0], dim=1) + F.softmax(seg(self.fake_B.clamp(-1, 1).flip(3))[0], dim=1)) / 2
             for _ in range(3): # 3roll/100epoch/6batch for softmax, 8/80/15 for one_hot
                 self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(self.fake_B_Seg.argmax(1), 19), self.edges_A)
+                # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, (self.real_A_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
                 self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
         else:
             self.fake_B = self.netG_A.forward(self.real_A, self.real_A_gray)
@@ -268,20 +280,23 @@ class SingleModel(BaseModel):
         if self.opt.input_linear:
             self.real_A = (self.real_A - torch.min(self.real_A))/(torch.max(self.real_A) - torch.min(self.real_A))
         if self.opt.skip == 1:
+            self.A_gt_Seg = seg(self.A_gt.clamp(-1, 1))[0]
             if self.use_seg_D:
                 self.real_B_Seg = seg(self.real_B.clamp(-1, 1))[0]
-            self.real_A_Seg = seg(self.real_img.clamp(-1, 1))[0]
+            self.real_A_Seg = (F.softmax(seg(self.real_img.clamp(-1, 1))[0], dim=1) + F.softmax(seg(self.real_img.clamp(-1, 1).flip(3))[0], dim=1)) / 2
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.mask + 1, 20))
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, torch.index_select(F.softmax(self.real_A_Seg, dim=1), 1, self.seg_index), self.edges_A)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, torch.index_select(one_hot(self.real_A_Seg.argmax(1), 19), 1, self.seg_index), self.edges_A)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, F.softmax(self.real_A_Seg, dim=1), self.edges_A)
-            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.real_A_Seg.argmax(1), 19), self.edges_A)
-            self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.real_A_Seg.argmax(1), 19), self.edges_A)
+            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, (self.real_A_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
+            self.fake_B_Seg = F.softmax(seg(self.fake_B.clamp(-1, 1))[0], dim=1) + F.softmax(seg(self.fake_B.clamp(-1, 1).flip(3))[0], dim=1)
             self.confident_mask = (F.softmax(self.fake_B_Seg, dim=1).max(1)[0] > 0.8)
-            for i in range(min((epoch+1)//80, 8)): # 3roll/100epoch/6batch for softmax, 8/80/15 for one_hot
-                self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.fake_B_Seg.argmax(1), 19), self.edges_A)
-                self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
-                self.confident_mask = (F.softmax(self.fake_B_Seg, dim=1).max(1)[0] > 0.8)
+            for i in range(min((epoch+1)//25, 8)): # 3roll/100epoch/6batch for softmax, 8/80/15 for one_hot
+                # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.fake_B_Seg.argmax(1), 19), self.edges_A)
+                self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, (self.fake_B_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
+                self.fake_B_Seg = (F.softmax(seg(self.fake_B.clamp(-1, 1))[0], dim=1) + F.softmax(seg(self.fake_B.clamp(-1, 1).flip(3))[0], dim=1)) / 2
+                self.confident_mask = (self.fake_B_Seg.max(1)[0] > 0.8)
         else:
             self.fake_B = self.netG_A.forward(self.real_img, self.real_A_gray)
         if self.opt.patchD:
@@ -339,7 +354,7 @@ class SingleModel(BaseModel):
                     self.input_patch_1_Seg.append(seg(self.input_patch_tmp[-1].clamp(-1, 1))[0])
 
 
-    def backward_G(self, epoch, seg_criterion=None, gan_gt=None):
+    def backward_G(self, epoch, seg_criterion=None, A_gt=None):
         # self.loss_G_A = torch.zeros(1).cuda()
         pred_fake = self.netD_A.forward(self.fake_B)
         if self.use_seg_D:
@@ -404,7 +419,7 @@ class SingleModel(BaseModel):
             vgg_w = 0
         else:
             if seg_criterion is None: vgg_w = 1
-            else: vgg_w = 0.3
+            else: vgg_w = 0.
         if self.opt.vgg > 0:
             self.loss_vgg_b = self.vgg_loss.compute_vgg_loss(self.vgg, self.fake_B, self.real_A) * self.opt.vgg if self.opt.vgg > 0 else 0
             if self.opt.patch_vgg:
@@ -452,22 +467,30 @@ class SingleModel(BaseModel):
                 idx = union > 0
                 IoU = 1.0 * inter[idx] / (np.spacing(1) + union[idx])
                 self.mIoU_ori = np.nan_to_num(IoU.mean())
-
                 self.mIoU_delta_mean = 0.8 * self.mIoU_delta_mean + 0.2 * np.round(self.mIoU-self.mIoU_ori, 3) 
+
+                inter, union = utils_seg.batch_intersection_union(self.A_gt_Seg.data, self.mask, 19)
+                idx = union > 0
+                IoU = 1.0 * inter[idx] / (np.spacing(1) + union[idx])
+                print("mIoU_gt_gain", np.round(np.nan_to_num(IoU.mean())-self.mIoU_ori, 3))
 
             print("G:", self.loss_G.data[0], "mIoU gain:", np.round(self.mIoU-self.mIoU_ori, 3), "mean:", np.round(self.mIoU_delta_mean, 3), "lum:", 255*(1 - self.input_A_gray).mean(), "epoch:", epoch)
 
             # seg_outputs = seg(self.fake_B)[0]
             # self.loss_Seg = seg_criterion(seg_outputs, self.mask)
-            self.mask[self.confident_mask < 1] = -1 # ignore -1 on inconfident pixels
+            # self.mask[self.confident_mask < 1] = -1 # ignore -1 on inconfident pixels
             self.loss_Seg = seg_criterion(self.fake_B_Seg, self.mask)
-            lambd = 10
+            lambd = 20
             self.loss_G += (lambd * self.loss_Seg)
         ############################################
         ## GAN_GT Loss ################################
-        if gan_gt is not None:
-            with torch.no_grad():
-                self.fake_B, self.latent_real_A = gan_gt.module.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.mask + 1, 20))
+        if A_gt is not None:
+            # msssim = msssim_loss((self.fake_B.clamp(-1, 1)+1)/2*255, (self.A_gt+1)/2*255, weight_map=self.A_boundary)
+            l1 = (F.l1_loss((self.fake_B+1)/2*255, (self.A_gt+1)/2*255, reduction='none') * self.A_boundary).mean()
+            # self.loss_gt = 3 * msssim + 0.16 * l1
+            self.loss_gt = l1
+            print("loss_gt", self.loss_gt.data[0])
+            self.loss_G += self.loss_gt
         ############################################
 
         self.loss_G.backward(retain_graph=True)
@@ -534,7 +557,7 @@ class SingleModel(BaseModel):
         # G_A and G_B
         self.optimizer_G.zero_grad()
         if not 'images' in self.opt.name:
-            self.backward_G(epoch, seg_criterion=seg_criterion)
+            self.backward_G(epoch, seg_criterion=seg_criterion, A_gt=True)
         else:
             self.backward_G(epoch, seg_criterion=None)
         self.optimizer_G.step()
@@ -560,13 +583,13 @@ class SingleModel(BaseModel):
             if 'images' in self.opt.name:
                 return OrderedDict([('D_A', D_A), ('G_A', G_A), ("vgg", vgg), ("D_P", D_P)])
             else:
-                return OrderedDict([('D_A', D_A), ('G_A', G_A), ("vgg", vgg), ("D_P", D_P), ("mIoU gain", np.round(self.mIoU-self.mIoU_ori, 3))])
+                return OrderedDict([('D_A', D_A), ('G_A', G_A), ("vgg", vgg), ("GT", self.loss_gt.data[0]), ("D_P", D_P), ("mIoU gain", np.round(self.mIoU-self.mIoU_ori, 3))])
         elif self.opt.fcn > 0:
             fcn = self.loss_fcn_b.data[0]/self.opt.fcn if self.opt.fcn > 0 else 0
             if 'images' in self.opt.name:
                 return OrderedDict([('D_A', D_A), ('G_A', G_A), ("fcn", fcn), ("D_P", D_P)])
             else:
-                return OrderedDict([('D_A', D_A), ('G_A', G_A), ("fcn", fcn), ("D_P", D_P), ("mIoU gain", np.round(self.mIoU-self.mIoU_ori, 3))])
+                return OrderedDict([('D_A', D_A), ('G_A', G_A), ("fcn", fcn), ("GT", self.loss_gt.data[0]), ("D_P", D_P), ("mIoU gain", np.round(self.mIoU-self.mIoU_ori, 3))])
         
 
     def get_current_visuals(self):
@@ -589,6 +612,7 @@ class SingleModel(BaseModel):
                         self_attention = util.atten2im(self.real_A_gray.data)
                         return OrderedDict([('real_A', real_A), ('fake_B', fake_B), ('latent_real_A', latent_real_A),
                                 ('latent_show', latent_show), ('real_B', real_B), ('real_patch', real_patch),
+                                ('A_gt', util.tensor2im(self.A_gt.data)),
                                 ('fake_patch', fake_patch), ('input_patch', input_patch), ('self_attention', self_attention)])
                 else:
                     if not self.opt.self_attention:

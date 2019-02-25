@@ -127,8 +127,8 @@ policy = Policy(hidden_dim=4, input_dim=23, rnn_type=None)
 r_neg = 5; r_pos = 5
 
 if evaluation:
-    checkpoint = torch.load("/home/chenwy/DynamicLightEnlighten/bdd100k_seg/policy_model/image_lstm.vgg.avgpool.argmax_delta.clip1.2.action-mean0.975_entropy.0_gamma.1_lr1e4_update.5_2019-02-01-13-05/model_best.pth.tar")
-    policy.load_state_dict(checkpoint['state_dict'])
+    # checkpoint = torch.load("/home/chenwy/DynamicLightEnlighten/bdd100k_seg/policy_model/image_lstm.vgg.avgpool.argmax_delta.clip1.2.action-mean0.975_entropy.0_gamma.1_lr1e4_update.5_2019-02-01-13-05/model_best.pth.tar")
+    # policy.load_state_dict(checkpoint['state_dict'])
     policy.eval()
 else:
     # params_list = [{'params': policy.vgg.parameters(), 'lr': lr},]
@@ -369,8 +369,11 @@ def evaluate(mode="patch"): # mode="origin"|"gan"|"patch"
                 total_niqe.append(niqe)
                 tbar.set_description('mIoU: %.3f, NIQE: %.3f' % ((1.0 * total_inter[idx] / (np.spacing(1) + total_union[idx])).mean(), np.mean(total_niqe)))
             elif mode == "patch":
-                image = transformer(Image.open(data["A_paths"][0])).unsqueeze(0)
-                mask = _mask_transform(Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", opt_gan.phase, os.path.splitext(data["A_paths"][0].split("/")[-1])[0] + '_train_id.png')))
+                # image = transformer(Image.open(data["A_paths"][0])).unsqueeze(0)
+                # mask = _mask_transform(Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", opt_gan.phase, os.path.splitext(data["A_paths"][0].split("/")[-1])[0] + '_train_id.png')))
+                image = data['A']; image = image.cuda()
+                mask = data['mask']
+                edges = data['edges_A']; edges = edges.cuda()
 
                 inter, union = get_mIoU(image, mask, inter_union=True)
                 total_inter_origin += inter; total_union_origin += union
@@ -383,18 +386,19 @@ def evaluate(mode="patch"): # mode="origin"|"gan"|"patch"
                 n_w = int(np.ceil(1. * w / crop_size))
                 step_h = 1.0 * (h - crop_size) / (n_h - 1)
                 step_w = 1.0 * (w - crop_size) / (n_w - 1)
-                image_new = torch.zeros(1, 3, h, w)
+                image_new = torch.zeros(1, 3, h, w).cuda()
                 template = torch.zeros(1, 3, h, w)
 
                 for i in range(n_w):
                     for j in range(n_h):
                         # x is w, y is h
                         x = int(np.round(i * step_w)); y = int(np.round(j * step_h))
-                        data["A"] = image[0:1, :, y: y + crop_size, x: x + crop_size]
-                        r,g,b = data["A"][0, 0, :, :]+1, data["A"][0, 1, :, :]+1, data["A"][0, 2, :, :]+1
+                        A = image[0:1, :, y: y + crop_size, x: x + crop_size]
+                        r,g,b = A[0, 0, :, :]+1, A[0, 1, :, :]+1, A[0, 2, :, :]+1
                         A_gray = 1. - (0.299*r+0.587*g+0.114*b)/2. # h, w
                         A_gray = A_gray.unsqueeze(0).unsqueeze(0)
-                        data["A_gray"] = A_gray
+                        # data["A_gray"] = A_gray
+                        A_edge = edges[:, :, y: y + crop_size, x: x + crop_size]
 
                         luminance = np.sort((255 - A_gray*255).detach().cpu().numpy().flatten())
                         length = luminance.shape[0]
@@ -410,12 +414,18 @@ def evaluate(mode="patch"): # mode="origin"|"gan"|"patch"
                         # data = image_cycle(data, visuals)
                         for _ in range(N):
                             # GAN prediction ###########################
-                            gan.set_input(data)
-                            visuals, fake_B_tensor = gan.predict(seg)
+                            # gan.set_input(data)
+                            gan.set_input_A(A, A_gray, A_edge)
+                            visuals, A = gan.predict(seg)
                             # GAN reset image data #########################
-                            data = image_cycle(data, visuals)
-                        image_new[0:1, :, y: y + crop_size, x: x + crop_size] += data["A"]
+                            # data = image_cycle(data, visuals)
+                            A = A.clamp(-1, 1)
+                            r,g,b = A[0, 0, :, :]+1, A[0, 1, :, :]+1, A[0, 2, :, :]+1
+                            A_gray = 1. - (0.299*r+0.587*g+0.114*b)/2. # h, w
+                            A_gray = A_gray.unsqueeze(0).unsqueeze(0)
+                        image_new[0:1, :, y: y + crop_size, x: x + crop_size] += A
                         template[0:1, :, y: y + crop_size, x: x + crop_size] += 1
+                image_new = image_new.detach().cpu()
                 image_new /= template
                 # evaluation ############################
                 inter, union = get_mIoU(image_new, mask, inter_union=True)

@@ -133,11 +133,11 @@ class UnalignedDataset(BaseDataset):
         # A_npy = np.array(A_img)
         # B_npy = np.array(B_img)
 
-        # r,g,b = A_npy[:, :, 0], A_npy[:, :, 1], A_npy[:, :, 2]
-        # value_A = (0.299*r+0.587*g+0.114*b) / 255.
-        # value_A = np.sort(value_A.flatten())
-        # length = value_A.shape[0]
-        # value_A = value_A[int(np.round(length * 0.1)) : int(np.round(length * 0.9))].mean()
+        # # r,g,b = A_npy[:, :, 0], A_npy[:, :, 1], A_npy[:, :, 2]
+        # # value_A = (0.299*r+0.587*g+0.114*b) / 255.
+        # # value_A = np.sort(value_A.flatten())
+        # # length = value_A.shape[0]
+        # # value_A = value_A[int(np.round(length * 0.1)) : int(np.round(length * 0.9))].mean()
 
         # if not 'images' in self.opt.name:
         #     # mask = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", "train", os.path.splitext(A_path.split("/")[-1])[0] + '_train_id.png'))
@@ -146,6 +146,14 @@ class UnalignedDataset(BaseDataset):
         #     mask = self._mask_transform(mask)
         # else:
         #     mask = torch.zeros(1)
+        # 
+        # # A_boundary = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/0_100_boundary/", self.opt.phase, os.path.splitext(A_path.split("/")[-1])[0] + '.png'))
+        # # A_boundary = np.array(A_boundary).astype('float32')
+        # # A_boundary = torch.from_numpy(A_boundary).unsqueeze(0)
+        # # A_gt = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/0_100_gt/", self.opt.phase, A_path.split("/")[-1])).convert('RGB')
+        # # A_gt = self.transform(A_gt)
+        # A_boundary = torch.zeros(1)
+        # A_gt = torch.zeros(1)
         ###################################################
         # without luminance selection #####################
         # x1 = random.randint(0, w - self.opt.fineSize)
@@ -155,11 +163,11 @@ class UnalignedDataset(BaseDataset):
         # A_npy = np.array(A_img)
         # B_npy = np.array(B_img)
 
-        # r,g,b = A_npy[:, :, 0], A_npy[:, :, 1], A_npy[:, :, 2]
-        # value_A = (0.299*r+0.587*g+0.114*b) / 255.
-        # value_A = np.sort(value_A.flatten())
-        # length = value_A.shape[0]
-        # value_A = value_A[int(np.round(length * 0.1)) : int(np.round(length * 0.9))].mean()
+        # # r,g,b = A_npy[:, :, 0], A_npy[:, :, 1], A_npy[:, :, 2]
+        # # value_A = (0.299*r+0.587*g+0.114*b) / 255.
+        # # value_A = np.sort(value_A.flatten())
+        # # length = value_A.shape[0]
+        # # value_A = value_A[int(np.round(length * 0.1)) : int(np.round(length * 0.9))].mean()
 
         # if not 'images' in self.opt.name:
         #     # mask = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", "train", os.path.splitext(A_path.split("/")[-1])[0] + '_train_id.png'))
@@ -168,6 +176,14 @@ class UnalignedDataset(BaseDataset):
         #     mask = self._mask_transform(mask)
         # else:
         #     mask = torch.zeros(1)
+        # 
+        # # A_boundary = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/0_100_boundary/", self.opt.phase, os.path.splitext(A_path.split("/")[-1])[0] + '.png'))
+        # # A_boundary = np.array(A_boundary).astype('float32')
+        # # A_boundary = torch.from_numpy(A_boundary).unsqueeze(0)
+        # # A_gt = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/0_100_gt/", self.opt.phase, A_path.split("/")[-1])).convert('RGB')
+        # # A_gt = self.transform(A_gt)
+        # A_boundary = torch.zeros(1)
+        # A_gt = torch.zeros(1)
         ###################################################
         # patch luminance & mask class diversity selection ###########################
         n_try = 0
@@ -200,6 +216,10 @@ class UnalignedDataset(BaseDataset):
                 unique, counts = np.unique(mask, return_counts=True)
                 if len(unique) < 2 or (counts / counts.sum()).max() > 0.7: n_try += 1; continue
                 mask = self._mask_transform(mask)
+
+                A_boundary = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/0_100_boundary/", self.opt.phase, os.path.splitext(A_path.split("/")[-1])[0] + '.png'))
+                A_boundary = np.array(A_boundary.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))).astype('float32')
+                A_boundary = torch.from_numpy(A_boundary).unsqueeze(0)
             else:
                 mask = torch.zeros(1)
             
@@ -214,18 +234,22 @@ class UnalignedDataset(BaseDataset):
             #     self.B_size -= 1
             index_A = random.randint(0, self.__len__())
             return self.__getitem__(index_A)
+
+        A_gt = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/0_100_gt/", self.opt.phase, A_path.split("/")[-1])).convert('RGB')
+        A_gt = A_gt.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
+        A_gt = self.transform(A_gt)
         ##########################################################################
 
-        gray_mask = torch.ones(1, self.opt.fineSize, self.opt.fineSize) * value_A
-        A_img_border = A_image.crop((x1-self.opt.fineSize//2, y1-self.opt.fineSize//2, x1+2*self.opt.fineSize, y1+2*self.opt.fineSize))
-        A_Lab = torch.Tensor(color.rgb2lab(A_npy) / 100).permute([2, 0, 1])
-        A_npy = gaussian(A_npy, sigma=2, multichannel=True)
-        r,g,b = A_npy[:, :, 0], A_npy[:, :, 1], A_npy[:, :, 2]
-        A_npy = 0.299*r+0.587*g+0.114*b
-        edges_A = torch.unsqueeze(torch.from_numpy(feature.canny(A_npy, sigma=2).astype("float32")), 0)
+        # gray_mask = torch.ones(1, self.opt.fineSize, self.opt.fineSize) * value_A # a single value across the matrix
+        # A_img_border = A_image.crop((x1-self.opt.fineSize//2, y1-self.opt.fineSize//2, x1+2*self.opt.fineSize, y1+2*self.opt.fineSize))
+        # A_Lab = torch.Tensor(color.rgb2lab(A_npy) / 100).permute([2, 0, 1])
+        A_gray_blur = gaussian(A_npy, sigma=2, multichannel=True)
+        r,g,b = A_gray_blur[:, :, 0], A_gray_blur[:, :, 1], A_gray_blur[:, :, 2]
+        A_gray_blur = 0.299*r+0.587*g+0.114*b
+        edges_A = torch.unsqueeze(torch.from_numpy(feature.canny(A_gray_blur, sigma=2).astype("float32")), 0)
 
         A_img = self.transform(A_img)
-        A_img_border = self.transform(A_img_border)
+        # A_img_border = self.transform(A_img_border)
         B_img = self.transform(B_img)
 
         if self.opt.resize_or_crop == 'no':
@@ -235,9 +259,9 @@ class UnalignedDataset(BaseDataset):
             input_img = A_img
             # A_gray = (1./A_gray)/255.
 
-            r,g,b = A_img_border[0]+1, A_img_border[1]+1, A_img_border[2]+1
-            A_gray_border = 1. - (0.299*r+0.587*g+0.114*b)/2.
-            A_gray_border = torch.unsqueeze(A_gray_border, 0)
+            # r,g,b = A_img_border[0]+1, A_img_border[1]+1, A_img_border[2]+1
+            # A_gray_border = 1. - (0.299*r+0.587*g+0.114*b)/2.
+            # A_gray_border = torch.unsqueeze(A_gray_border, 0)
         else:
             w = A_img.size(2)
             h = A_img.size(1)
@@ -268,8 +292,9 @@ class UnalignedDataset(BaseDataset):
             A_gray = torch.unsqueeze(A_gray, 0)
         return {'A': A_img, 'B': B_img, 'A_gray': A_gray, 'input_img': input_img,
                 'A_paths': A_path, 'B_paths': B_path, 'mask': mask,
-                'A_border': A_img_border, 'A_gray_border': A_gray_border,
-                'A_Lab': A_Lab, 'gray_mask': gray_mask, 'edges_A': edges_A
+                # 'A_border': A_img_border, 'A_gray_border': A_gray_border,
+                # 'A_Lab': A_Lab, 'gray_mask': gray_mask
+                'A_gt': A_gt, 'A_boundary': A_boundary, 'edges_A': edges_A,
                 }
 
     def __len__(self):
