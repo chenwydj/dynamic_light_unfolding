@@ -121,6 +121,7 @@ class Options():
                 'bdd100k_drivable': 180,
                 'bdd100k_seg': 800,
                 'deep_globe': 800,
+                'mapillary': 800,
             }
             args.epochs = epoches[args.dataset.lower()]
         if args.batch_size is None:
