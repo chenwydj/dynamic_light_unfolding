@@ -47,17 +47,17 @@ class BaseDataset(data.Dataset):
         raise NotImplemented
 
     def _val_sync_transform(self, img, mask):
-        # outsize = self.crop_size
-        # short_size = outsize
-        # w, h = img.size
-        # if w > h:
-        #     oh = short_size
-        #     ow = int(1.0 * w * oh / h)
-        # else:
-        #     ow = short_size
-        #     oh = int(1.0 * h * ow / w)
-        # img = img.resize((ow, oh), Image.BILINEAR)
-        # mask = mask.resize((ow, oh), Image.NEAREST)
+        w, h = img.size
+        short_size = self.base_size
+        if w > h:
+            oh = short_size
+            ow = int(1.0 * w * oh / h)
+        else:
+            ow = short_size
+            oh = int(1.0 * h * ow / w)
+        img = img.resize((ow, oh), Image.BILINEAR)
+        mask = mask.resize((ow, oh), Image.NEAREST)
+
         # # center crop
         # w, h = img.size
         # x1 = int(round((w - outsize) / 2.))
@@ -75,7 +75,7 @@ class BaseDataset(data.Dataset):
 
         # random scale (short edge from 480 to 720)
         if self.scale:
-            # short_size = random.randint(int(self.base_size*0.75), int(self.base_size*2.0))
+            # short_size = random.randint(int(self.base_size*0.75), int(self.base_size*1.5))
             short_size = random.randint(int(self.base_size*0.8), int(self.base_size*1.2))
         else:
             short_size = self.base_size

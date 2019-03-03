@@ -93,7 +93,7 @@ def _get_mapillary_seg_pairs(folder, split='train'):
             basename, _ = os.path.splitext(filename)
             if filename.endswith(".jpg"):
                 imgpath = os.path.join(img_folder, filename)
-                maskname = basename + '_train_id.png'
+                maskname = basename + '.png'
                 maskpath = os.path.join(mask_folder, maskname)
                 if os.path.isfile(maskpath):
                     img_paths.append(imgpath)

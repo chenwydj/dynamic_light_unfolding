@@ -13,6 +13,7 @@ import torch
 from torch.utils import data
 import torchvision.transforms as transform
 from torch.nn.parallel.scatter_gather import gather
+from torch.nn import functional as F
 
 import bdd.encoding.utils as utils
 from bdd.encoding.nn import SegmentationLosses, BatchNorm2d
@@ -48,7 +49,8 @@ class Trainer():
         # dataloader
         kwargs = {'num_workers': args.workers, 'pin_memory': True} if args.cuda else {}
         self.trainloader = data.DataLoader(trainset, batch_size=args.batch_size, drop_last=True, shuffle=True, **kwargs)
-        self.valloader = data.DataLoader(testset, batch_size=args.batch_size, drop_last=False, shuffle=False, **kwargs)
+        # self.valloader = data.DataLoader(testset, batch_size=args.batch_size, drop_last=False, shuffle=False, **kwargs)
+        self.valloader = data.DataLoader(testset, batch_size=1, drop_last=False, shuffle=False, **kwargs)
         self.nclass = trainset.num_class
 
         # model
@@ -169,6 +171,7 @@ class Trainer():
             # outputs = gather(outputs, 0, dim=0)
 
             pred = outputs[0]
+            pred = F.upsample(pred, size=(target.size(1), target.size(2)), mode='bilinear')
 
             # create weather / timeofday target mask #######################
             # b, _, h, w = weather_o.size()
@@ -262,7 +265,7 @@ if __name__ == "__main__":
     if not args.eval:
         for epoch in range(args.start_epoch, args.epochs):
             trainer.training(epoch)
-            if (not args.no_val) and (epoch % 5 == 0):
+            if (not args.no_val) and (epoch % 10 == 0):
                 trainer.validation(epoch=epoch)
     elif args.eval:
         trainer.validation()
