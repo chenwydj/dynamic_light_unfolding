@@ -35,21 +35,21 @@ if opt.train:
 	os.system("python EnlightenGAN/train.py \
 		--dataroot /ssd1/chenwy/bdd100k/light_enhance_AB/seg_85/ \
 		--no_dropout \
-		--name bdd.seg20.flip.0.425threshold_gt.weight.l1_day100.255.night0.60_G.roll0.8.segargmax.edge.unet4.resblk6_latent.gamma_D.boundary.layer3.2_vgg0_180px_align \
+		--name bdd.seg10_gt.weight.0.1l1_day100.255.night0.60.classconstraint_G.softsoftflip.priors.roll0.unet4.resblk6_latent.gamma_D.boundary.layer3.2_vgg0_180px_align \
 		--model single \
 		--dataset_mode unaligned \
 		--which_model_netG sid_unet_res_resize \
         --which_model_netD no_norm_4 \
         --patchD \
         --patch_vgg \
-        --patchD_3 7 \
+        --patchD_3 5 \
         --n_layers_D 3 \
         --n_layers_patchD 2 \
 		--fineSize 180 \
         --patchSize 60 \
 		--resize_or_crop='no' \
 		--skip 1 \
-		--batchSize 15 \
+		--batchSize 12 \
 		--use_norm 1 \
 		--use_wgan 0 \
         --use_ragan \
@@ -92,7 +92,7 @@ elif opt.test:
 # \
 elif opt.predict:
 	os.system("python EnlightenGAN/predict.py \
-		--dataroot /ssd1/chenwy/bdd100k/images/100k/val \
+		--dataroot /ssd1/chenwy/bdd100k/seg_luminance/0_100/train \
 		--name single_unet_conv_add_vary_attention_Tresidual_bs32_BN_nonormDlayer5_4_final_ragan_lsgan_32D_PV_5_vgg_relu5_1 \
 		--model single \
 		--which_direction AtoB \

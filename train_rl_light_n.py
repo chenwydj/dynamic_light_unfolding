@@ -342,32 +342,43 @@ def evaluate(mode="patch"): # mode="origin"|"gan"|"patch"
             data["A_gray"] is (b, 1, h, w)
             '''
             if mode == "origin":
-                image = transformer(Image.open(data["A_paths"][0])).unsqueeze(0)
+                # image = transformer(Image.open(data["A_paths"][0])).unsqueeze(0)
+                # image = transformer(Image.open("/ssd1/chenwy/bdd100k/seg_luminance/0_100/val/" + data["A_paths"][0].split("/")[-1])).unsqueeze(0)
                 mask = _mask_transform(Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", opt_gan.phase, os.path.splitext(data["A_paths"][0].split("/")[-1])[0] + '_train_id.png')))
-                # inter, union = get_mIoU(data["A"], data["mask"], inter_union=True)
-                inter, union = get_mIoU(image, mask, inter_union=True)
+                inter, union = get_mIoU(data["A"], data["mask"], inter_union=True)
+                # inter, union = get_mIoU(image, mask, inter_union=True)
                 total_inter += inter; total_union += union
-                # niqe = get_niqe(data["A"])
-                niqe = get_niqe(image)
+                niqe = get_niqe(data["A"])
+                # niqe = get_niqe(image)
                 total_niqe.append(niqe)
                 idx = total_union > 0
                 tbar.set_description('mIoU: %.3f, NIQE: %.3f' % ((1.0 * total_inter[idx] / (np.spacing(1) + total_union[idx])).mean(), np.mean(total_niqe)))
             elif mode == "gan":
-                image = transformer(Image.open(data["A_paths"][0])).unsqueeze(0)
+                # image = Image.open(data["A_paths"][0])
+                # data["A"] = image
+                # r,g,b = data["A"][0, 0, :, :]+1, data["A"][0, 1, :, :]+1, data["A"][0, 2, :, :]+1
+                # A_gray = 1. - (0.299*r+0.587*g+0.114*b)/2. # h, w
+                # A_gray = A_gray.unsqueeze(0).unsqueeze(0)
+                # data["A_gray"] = A_gray
                 mask = _mask_transform(Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", opt_gan.phase, os.path.splitext(data["A_paths"][0].split("/")[-1])[0] + '_train_id.png')))
-                data["A"] = image
-                r,g,b = data["A"][0, 0, :, :]+1, data["A"][0, 1, :, :]+1, data["A"][0, 2, :, :]+1
-                A_gray = 1. - (0.299*r+0.587*g+0.114*b)/2. # h, w
-                A_gray = A_gray.unsqueeze(0).unsqueeze(0)
-                data["A_gray"] = A_gray
+
+                inter, union = get_mIoU(data["A"], mask, inter_union=True)
+                total_inter_origin += inter; total_union_origin += union
+                niqe = get_niqe(data["A"])
+                total_niqe_origin.append(niqe)
+
                 gan.set_input(data)
-                visuals, fake_B_tensor = gan.predict()
+                visuals, fake_B_tensor = gan.predict(seg)
                 inter, union = get_mIoU(fake_B_tensor, mask, inter_union=True)
                 total_inter += inter; total_union += union
                 idx = total_union > 0
                 niqe = get_niqe(fake_B_tensor)
                 total_niqe.append(niqe)
-                tbar.set_description('mIoU: %.3f, NIQE: %.3f' % ((1.0 * total_inter[idx] / (np.spacing(1) + total_union[idx])).mean(), np.mean(total_niqe)))
+                # tbar.set_description('mIoU: %.3f, NIQE: %.3f' % ((1.0 * total_inter[idx] / (np.spacing(1) + total_union[idx])).mean(), np.mean(total_niqe)))
+                tbar.set_description('mIoU_ori: %.3f, mIoU: %.3f, NIQE_ori: %.3f, NIQE: %.3f' % ((\
+                    1.0 * total_inter_origin[idx] / (np.spacing(1) + total_union_origin[idx])).mean(),\
+                    (1.0 * total_inter[idx] / (np.spacing(1) + total_union[idx])).mean(),\
+                    np.mean(total_niqe_origin), np.mean(total_niqe)))
             elif mode == "patch":
                 # image = transformer(Image.open(data["A_paths"][0])).unsqueeze(0)
                 # mask = _mask_transform(Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", opt_gan.phase, os.path.splitext(data["A_paths"][0].split("/")[-1])[0] + '_train_id.png')))
@@ -377,6 +388,7 @@ def evaluate(mode="patch"): # mode="origin"|"gan"|"patch"
 
                 inter, union = get_mIoU(image, mask, inter_union=True)
                 total_inter_origin += inter; total_union_origin += union
+                idx_origin = total_union_origin > 0
                 niqe = get_niqe(image)
                 total_niqe_origin.append(niqe)
 
@@ -434,7 +446,7 @@ def evaluate(mode="patch"): # mode="origin"|"gan"|"patch"
                 niqe = get_niqe(image_new)
                 total_niqe.append(niqe)
                 tbar.set_description('mIoU_ori: %.3f, mIoU: %.3f, NIQE_ori: %.3f, NIQE: %.3f' % ((\
-                    1.0 * total_inter_origin[idx] / (np.spacing(1) + total_union_origin[idx])).mean(),\
+                    1.0 * total_inter_origin[idx_origin] / (np.spacing(1) + total_union_origin[idx_origin])).mean(),\
                     (1.0 * total_inter[idx] / (np.spacing(1) + total_union[idx])).mean(),\
                     np.mean(total_niqe_origin), np.mean(total_niqe)))
             elif mode == "policy":

@@ -11,6 +11,7 @@ from pdb import set_trace as st
 import numpy as np
 from skimage import color, feature
 from skimage.filters import gaussian
+from scipy.ndimage import gaussian_filter
 
 
 def pad_tensor(input):
@@ -68,6 +69,16 @@ class UnalignedDataset(BaseDataset):
     def initialize(self, opt):
         self.opt = opt
         self.root = opt.dataroot
+
+        # seg label distribution priors #######################
+        label_train_prior = np.load("/ssd1/chenwy/bdd100k/bdd_seg_label_train_day_summary.npy")
+        priors = []
+        for c in range(1, 20):
+            prior = gaussian_filter(label_train_prior[:, :, c] / label_train_prior[:, :, c].sum(), sigma=10)
+            priors.append(torch.Tensor(prior))
+        self.priors = torch.stack(priors, 0)
+        #######################################################
+
         ##############################
         # self.dir_A = os.path.join(opt.dataroot)#, opt.phase + 'A')
         # self.dir_B = os.path.join(opt.dataroot)#, opt.phase + 'B')
@@ -112,6 +123,7 @@ class UnalignedDataset(BaseDataset):
 
     def __getitem__(self, index_A):
         A_path = self.A_paths[index_A % self.A_size]
+        # A_path = "/ssd1/chenwy/bdd100k/seg_luminance/0_100_r1/val/" + A_path.split("/")[-1]
         index_B = random.randint(0, self.B_size - 1)
         B_path = self.B_paths[index_B % self.B_size]
 
@@ -130,6 +142,7 @@ class UnalignedDataset(BaseDataset):
         # whole image/mask #####################
         # A_img = A_image
         # B_img = B_image
+        # priors = self.priors
         # A_npy = np.array(A_img)
         # B_npy = np.array(B_img)
 
@@ -190,8 +203,11 @@ class UnalignedDataset(BaseDataset):
         while n_try < self.N_TRY:
             x1 = random.randint(0, w - self.opt.fineSize)
             y1 = random.randint(0, h - self.opt.fineSize)
+            x2 = x1 + random.randint(-self.opt.fineSize//2, self.opt.fineSize//2); x2 = max(0, x2); x2 = min(x2, w - self.opt.fineSize)
+            y2 = y1 + random.randint(-self.opt.fineSize//2, self.opt.fineSize//2); y2 = max(0, y2); y2 = min(y2, w - self.opt.fineSize)
+            priors = self.priors[:, y1:y1+self.opt.fineSize, x1:x1+self.opt.fineSize]
             A_img = A_image.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
-            B_img = B_image.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))
+            B_img = B_image.crop((x2, y2, x2+self.opt.fineSize, y2+self.opt.fineSize))
             A_npy = np.array(A_img)
             B_npy = np.array(B_img)
 
@@ -214,8 +230,19 @@ class UnalignedDataset(BaseDataset):
                 mask = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", self.opt.phase, os.path.splitext(A_path.split("/")[-1])[0] + '_train_id.png'))
                 mask = np.array(mask.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))).astype('int32') # cropped mask for light_enhance_AB/seg
                 unique, counts = np.unique(mask, return_counts=True)
-                if len(unique) < 2 or (counts / counts.sum()).max() > 0.7: n_try += 1; continue
+                # calculate class density prob. vector
+                unique[unique == 255] = -1; unique += 1; prob_A = np.zeros(20); prob_A[unique] = counts/counts.sum()
+                # select by class diversity
+                # if len(unique) < 2 or (counts / counts.sum()).max() > 0.7: n_try += 1; continue
                 mask = self._mask_transform(mask)
+
+                mask_B = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg/labels/", self.opt.phase, os.path.splitext(B_path.split("/")[-1])[0] + '_train_id.png'))
+                mask_B = np.array(mask_B.crop((x2, y2, x2+self.opt.fineSize, y2+self.opt.fineSize))).astype('int32') # cropped mask_B for light_enhance_AB/seg
+                unique, counts = np.unique(mask_B, return_counts=True)
+                # calculate class density prob. vector
+                unique[unique == 255] = -1; unique += 1; prob_B = np.zeros(20); prob_B[unique] = counts/counts.sum()
+                # compare & threshold class density prob. vector
+                if (((prob_A - prob_B) ** 2).mean()) ** 0.5 > 0.08: continue
 
                 A_boundary = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/0_100_boundary/", self.opt.phase, os.path.splitext(A_path.split("/")[-1])[0] + '.png'))
                 A_boundary = np.array(A_boundary.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))).astype('float32')
@@ -294,7 +321,7 @@ class UnalignedDataset(BaseDataset):
                 'A_paths': A_path, 'B_paths': B_path, 'mask': mask,
                 # 'A_border': A_img_border, 'A_gray_border': A_gray_border,
                 # 'A_Lab': A_Lab, 'gray_mask': gray_mask
-                'A_gt': A_gt, 'A_boundary': A_boundary, 'edges_A': edges_A,
+                'A_gt': A_gt, 'A_boundary': A_boundary, 'edges_A': edges_A, 'priors': priors
                 }
 
     def __len__(self):

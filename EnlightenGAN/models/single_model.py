@@ -53,6 +53,7 @@ class SingleModel(BaseModel):
         self.seg_index = torch.LongTensor([0, 1, 2, 5, 8, 9, 10, 11, 13, 14, 15]).cuda()
         self.A_gt = self.Tensor(nb, opt.input_nc, size, size)
         self.A_boundary = self.Tensor(nb, 1, size, size)
+        self.priors = self.Tensor(nb, 19, size, size)
 
         self.adv_image = 1 if 'images' in self.opt.name else 0.5
         self.mIoU_delta_mean = 0
@@ -190,6 +191,7 @@ class SingleModel(BaseModel):
         self.edges_A.resize_(input['edges_A'].size()).copy_(input['edges_A'])
         self.A_gt.resize_(input['A_gt'].size()).copy_(input['A_gt'])
         self.A_boundary.resize_(input['A_boundary'].size()).copy_(input['A_boundary'])
+        self.priors.resize_(input['priors'].size()).copy_(input['priors'])
 
     def set_input_A(self, A, A_gray, edges_A):
         self.input_A.resize_(A.size()).copy_(A)
@@ -231,14 +233,17 @@ class SingleModel(BaseModel):
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, torch.index_select(one_hot(seg(self.real_A)[0].argmax(1), 19), 1, self.seg_index), self.edges_A)
 
             self.real_A_Seg = (F.softmax(seg(self.real_A.clamp(-1, 1))[0], dim=1) + F.softmax(seg(self.real_A.clamp(-1, 1).flip(3))[0], dim=1)) / 2
-            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(seg(self.real_A)[0].argmax(1), 19), self.edges_A)
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(seg(self.real_A)[0].argmax(1), 19), self.edges_A)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, (self.real_A_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray)
+            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, F.softmax(F.softmax(self.real_A_Seg, dim=1)), self.priors)
             # self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
             self.fake_B_Seg = (F.softmax(seg(self.fake_B.clamp(-1, 1))[0], dim=1) + F.softmax(seg(self.fake_B.clamp(-1, 1).flip(3))[0], dim=1)) / 2
-            for _ in range(3): # 3roll/100epoch/6batch for softmax, 8/80/15 for one_hot
-                self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(self.fake_B_Seg.argmax(1), 19), self.edges_A)
-                # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, (self.real_A_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
-                self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
+            # for _ in range(0): # 3roll/100epoch/6batch for softmax, 8/80/15 for one_hot
+            #     # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(self.fake_B_Seg.argmax(1), 19), self.edges_A)
+            #     # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, (self.real_A_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
+            #     self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray)
+            #     self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
         else:
             self.fake_B = self.netG_A.forward(self.real_A, self.real_A_gray)
         # self.rec_A = self.netG_B.forward(self.fake_B)
@@ -288,15 +293,19 @@ class SingleModel(BaseModel):
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, torch.index_select(F.softmax(self.real_A_Seg, dim=1), 1, self.seg_index), self.edges_A)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, torch.index_select(one_hot(self.real_A_Seg.argmax(1), 19), 1, self.seg_index), self.edges_A)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, F.softmax(self.real_A_Seg, dim=1), self.edges_A)
+            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, F.softmax(F.softmax(self.real_A_Seg, dim=1)), self.priors)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.real_A_Seg.argmax(1), 19), self.edges_A)
-            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, (self.real_A_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, (self.real_A_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray)
             self.fake_B_Seg = F.softmax(seg(self.fake_B.clamp(-1, 1))[0], dim=1) + F.softmax(seg(self.fake_B.clamp(-1, 1).flip(3))[0], dim=1)
-            self.confident_mask = (F.softmax(self.fake_B_Seg, dim=1).max(1)[0] > 0.8)
-            for i in range(min((epoch+1)//25, 8)): # 3roll/100epoch/6batch for softmax, 8/80/15 for one_hot
-                # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.fake_B_Seg.argmax(1), 19), self.edges_A)
-                self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, (self.fake_B_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
-                self.fake_B_Seg = (F.softmax(seg(self.fake_B.clamp(-1, 1))[0], dim=1) + F.softmax(seg(self.fake_B.clamp(-1, 1).flip(3))[0], dim=1)) / 2
-                self.confident_mask = (self.fake_B_Seg.max(1)[0] > 0.8)
+            # self.confident_mask = (F.softmax(self.fake_B_Seg, dim=1).max(1)[0] > 0.8)
+            # for i in range(min((epoch+1)//25, 8)): # 3roll/100epoch/6batch for softmax, 8/80/15 for one_hot
+            # for i in range(0): # 3roll/100epoch/6batch for softmax, 8/80/15 for one_hot
+            #     # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.fake_B_Seg.argmax(1), 19), self.edges_A)
+            #     # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, (self.fake_B_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
+            #     self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray)
+            #     self.fake_B_Seg = (F.softmax(seg(self.fake_B.clamp(-1, 1))[0], dim=1) + F.softmax(seg(self.fake_B.clamp(-1, 1).flip(3))[0], dim=1)) / 2
+            #     # self.confident_mask = (self.fake_B_Seg.max(1)[0] > 0.8)
         else:
             self.fake_B = self.netG_A.forward(self.real_img, self.real_A_gray)
         if self.opt.patchD:
@@ -480,7 +489,7 @@ class SingleModel(BaseModel):
             # self.loss_Seg = seg_criterion(seg_outputs, self.mask)
             # self.mask[self.confident_mask < 1] = -1 # ignore -1 on inconfident pixels
             self.loss_Seg = seg_criterion(self.fake_B_Seg, self.mask)
-            lambd = 20
+            lambd = 10
             self.loss_G += (lambd * self.loss_Seg)
         ############################################
         ## GAN_GT Loss ################################
@@ -488,7 +497,7 @@ class SingleModel(BaseModel):
             # msssim = msssim_loss((self.fake_B.clamp(-1, 1)+1)/2*255, (self.A_gt+1)/2*255, weight_map=self.A_boundary)
             l1 = (F.l1_loss((self.fake_B+1)/2*255, (self.A_gt+1)/2*255, reduction='none') * self.A_boundary).mean()
             # self.loss_gt = 3 * msssim + 0.16 * l1
-            self.loss_gt = l1
+            self.loss_gt = 0.1 * l1
             print("loss_gt", self.loss_gt.data[0])
             self.loss_G += self.loss_gt
         ############################################
