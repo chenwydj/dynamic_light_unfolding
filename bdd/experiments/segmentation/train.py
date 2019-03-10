@@ -8,6 +8,7 @@ import os
 import copy
 import numpy as np
 from tqdm import tqdm
+import time
 
 import torch
 from torch.utils import data
@@ -21,7 +22,7 @@ from bdd.encoding.nn import SegmentationMultiLosses
 from bdd.encoding.parallel import DataParallelModel, DataParallelCriterion
 from bdd.encoding.datasets import get_segmentation_dataset
 from bdd.encoding.models import get_segmentation_model
-
+from tensorboardX import SummaryWriter
 from option import Options
 
 import json
@@ -36,6 +37,7 @@ class Trainer():
         self.args = args
         args.log_name = str(args.checkname)
         self.logger = utils.create_logger(args.log_root, args.log_name)
+        self.writer = SummaryWriter(log_dir=os.path.join(args.log_root, args.log_name, time.strftime("%Y-%m-%d-%H-%M",time.localtime())))
         # data transforms
         input_transform = transform.Compose([
             transform.ToTensor(),
@@ -69,9 +71,12 @@ class Trainer():
             params_list.append({'params': model.auxlayer.parameters(), 'lr': 1 * args.lr*10})
         optimizer = torch.optim.SGD(params_list, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
 
-        # self.criterion = SegmentationMultiLosses(nclass=self.nclass)
-        self.criterion = SegmentationLosses(se_loss=args.se_loss, aux=args.aux, nclass=self.nclass)
-        # self.criterion = torch.nn.CrossEntropyLoss()
+        if args.model == 'danet':
+            self.criterion = SegmentationMultiLosses(nclass=self.nclass)
+        elif args.model == 'fcn':
+            self.criterion = SegmentationLosses(se_loss=args.se_loss, aux=args.aux, nclass=self.nclass)
+        else:
+            self.criterion = torch.nn.CrossEntropyLoss()
         #####################################################################
 
         self.model, self.optimizer = model, optimizer
@@ -118,12 +123,12 @@ class Trainer():
         tbar = tqdm(self.trainloader)
 
         # for i, (image, target, weather, timeofday, scene, name) in enumerate(tbar):
-        for i, (image, target, name) in enumerate(tbar):
+        self.optimizer.zero_grad()
+        for i, (image, target, name, class_freq) in enumerate(tbar):
             # weather = weather.cuda(); timeofday = timeofday.cuda()
             ################################################
             self.scheduler(self.optimizer, i, epoch, self.best_pred)
             ################################################
-            self.optimizer.zero_grad()
             if torch_ver == "0.3":
                 image = Variable(image)
                 target = Variable(target)
@@ -142,9 +147,11 @@ class Trainer():
             loss = self.criterion(outputs, target)
 
             loss.backward()
-            self.optimizer.step()
+            if epoch % self.args.late_update == 0:
+                self.optimizer.step()
+                self.optimizer.zero_grad()
             train_loss += loss.item()
-            tbar.set_description('Train loss: %.3f' % (train_loss / (i + 1)))
+            tbar.set_description('Train loss: %.3f; ' % (train_loss / (i + 1)) + '[' + ' '.join([ "%.2f"%p for p in np.round(class_freq[0], 2)]) + ']')
         self.logger.info('Train loss: %.3f' % (train_loss / (i + 1)))
 
         # save checkpoint every 5 epoch
@@ -200,7 +207,7 @@ class Trainer():
         tbar = tqdm(self.valloader, desc='\r')
 
         # for i, (image, target, weather, timeofday, scene, name) in enumerate(tbar):
-        for i, (image, target, name) in enumerate(tbar):
+        for i, (image, target, name, class_freq) in enumerate(tbar):
             if torch_ver == "0.3":
                 image = Variable(image, volatile=True)
                 # correct, labeled, inter, union, correct_weather, labeled_weather, correct_timeofday, labeled_timeofday = eval_batch(self.model, image, target, weather, timeofday, scene)
@@ -231,6 +238,7 @@ class Trainer():
             tbar.set_description('pixAcc: %.2f, mIoU: %.2f' % (pixAcc, mIoU))
         # self.logger.info('pixAcc: %.3f, mIoU: %.3f, pixAcc_weather: %.3f, pixAcc_timeofday: %.3f' % (pixAcc, mIoU, pixAcc_weather, pixAcc_timeofday))
         self.logger.info('pixAcc: %.3f, mIoU: %.3f' % (pixAcc, mIoU))
+        self.writer.add_scalars('IoU', {'validation iou': mIoU}, epoch)
         with open("name2inter", 'w') as fp:
             json.dump(name2inter, fp)
         with open("name2union", 'w') as fp:

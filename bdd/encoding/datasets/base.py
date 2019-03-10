@@ -67,31 +67,31 @@ class BaseDataset(data.Dataset):
         # # final transform
         return img, self._mask_transform(mask)
 
-    def _sync_transform(self, img, mask):
+    def _sync_transform(self, image, mask, class_freq=None):
         # random mirror
         if random.random() < 0.5:
-            img = img.transpose(Image.FLIP_LEFT_RIGHT)
+            image = image.transpose(Image.FLIP_LEFT_RIGHT)
             mask = mask.transpose(Image.FLIP_LEFT_RIGHT)
 
         # random scale (short edge from 480 to 720)
         if self.scale:
-            # short_size = random.randint(int(self.base_size*0.75), int(self.base_size*1.5))
-            short_size = random.randint(int(self.base_size*0.8), int(self.base_size*1.2))
+            short_size = random.randint(int(self.base_size*0.75), int(self.base_size*1.5))
+            # short_size = random.randint(int(self.base_size*0.8), int(self.base_size*1.2))
         else:
             short_size = self.base_size
-        w, h = img.size
+        w, h = image.size
         if h > w:
             ow = short_size
             oh = int(1.0 * h * ow / w)
         else:
             oh = short_size
             ow = int(1.0 * w * oh / h)
-        img = img.resize((ow, oh), Image.BILINEAR)
+        image = image.resize((ow, oh), Image.BILINEAR)
         mask = mask.resize((ow, oh), Image.NEAREST)
 
         # random rotate -10~10, mask using NN rotate
         # deg = random.uniform(-10, 10)
-        # img = img.rotate(deg, resample=Image.BILINEAR)
+        # image = image.rotate(deg, resample=Image.BILINEAR)
         # mask = mask.rotate(deg, resample=Image.NEAREST)
 
         # pad crop
@@ -99,15 +99,27 @@ class BaseDataset(data.Dataset):
         if short_size < crop_size:
             padh = crop_size - oh if oh < crop_size else 0
             padw = crop_size - ow if ow < crop_size else 0
-            img = ImageOps.expand(img, border=(0, 0, padw, padh), fill=0)
+            image = ImageOps.expand(image, border=(0, 0, padw, padh), fill=0)
             mask = ImageOps.expand(mask, border=(0, 0, padw, padh), fill=255)#pad 255 for cityscapes
 
         # random crop crop_size
-        w, h = img.size
+        w, h = image.size
         x1 = random.randint(0, w - crop_size)
         y1 = random.randint(0, h - crop_size)
-        img = img.crop((x1, y1, x1+crop_size, y1+crop_size))
-        mask = mask.crop((x1, y1, x1+crop_size, y1+crop_size))
+        image_crop = image.crop((x1, y1, x1+crop_size, y1+crop_size))
+        mask_crop = np.array(mask.crop((x1, y1, x1+crop_size, y1+crop_size)))
+        if class_freq is not None:
+            class_weights = ((1 - class_freq) ** 5); class_weights /= class_weights.max()
+            while True:
+                unique, counts = np.unique(mask_crop, return_counts=True)
+                # calculate class density prob. vector
+                unique[unique == 255] = -1; unique += 1; vector = np.zeros(len(class_freq)+1); vector[unique] = counts/counts.sum(); vector = vector[1:]
+                prob = class_weights.dot(vector)
+                if random.random() < prob: break
+                x1 = random.randint(0, w - crop_size)
+                y1 = random.randint(0, h - crop_size)
+                image_crop = image.crop((x1, y1, x1+crop_size, y1+crop_size))
+                mask_crop = np.array(mask.crop((x1, y1, x1+crop_size, y1+crop_size)))
 
         # gaussian blur as in PSP
         # if random.random() < 0.5:
@@ -115,9 +127,12 @@ class BaseDataset(data.Dataset):
         #         radius=random.random()))
 
         # final transform
-        return img, self._mask_transform(mask)
+        if class_freq is None: return image_crop, self._mask_transform(mask_crop)
+        else: return image_crop, self._mask_transform(mask_crop), vector
 
     def _mask_transform(self, mask):
+        target = np.array(mask).astype('int32')
+        target[target == 255] = -1
         return torch.from_numpy(np.array(mask)).long()
 
 

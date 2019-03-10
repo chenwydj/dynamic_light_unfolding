@@ -25,8 +25,11 @@ class BDD100K_Seg(BaseDataset):
     weather2num = {"clear": 0, "foggy": 1, "overcast": 2, "partly cloudy": 3, "rainy": 4, "snowy": 5, "undefined": 6, }
     timeofday2num = {"dawn/dusk": 0, "daytime": 1, "night": 2, "undefined": 3}
     scene2num = {"city street": 0, "gas stations": 1, "highway": 2, "parking lot": 3, "residential": 4, "tunnel": 5, "undefined": 6, }
+
     def __init__(self, root='/ssd1/chenwy/', split='train', mode=None, transform=None, target_transform=None, **kwargs):
         super(BDD100K_Seg, self).__init__(root, split, mode, transform, target_transform, **kwargs)
+
+        self.class_freq = np.ones(self.NUM_CLASS) * 1./self.NUM_CLASS
         # assert exists
         root = os.path.join(root, self.BASE_DIR)
         assert os.path.exists(root), "Please download the dataset!!"
@@ -62,7 +65,8 @@ class BDD100K_Seg(BaseDataset):
         
         # synchrosized transform
         if self.mode == 'train':
-            img, mask = self._sync_transform(img, mask)
+            img, mask, vector = self._sync_transform(img, mask, class_freq=self.class_freq)
+            self.class_freq = 0.99 * self.class_freq + 0.01 * vector
         elif self.mode == 'val':
             img, mask = self._val_sync_transform(img, mask)
         else:
@@ -89,7 +93,7 @@ class BDD100K_Seg(BaseDataset):
         ################################################
 
         # return img, mask, weather, timeofday, scene, self.images[index]
-        return img, mask, self.images[index]
+        return img, mask, self.images[index], self.class_freq
 
     def _mask_transform(self, mask):
         target = np.array(mask).astype('int32')

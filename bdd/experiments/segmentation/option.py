@@ -30,6 +30,8 @@ class Options():
                             help='crop image size')
         # training hyper params
 
+        parser.add_argument('--late-update', type=int, default=1,
+                            help='epochs for late update')
         parser.add_argument('--aux', action='store_true', default=False,
                             help='Auxilary Loss')
         parser.add_argument('--aux-weight', type=float, default=0.2,
