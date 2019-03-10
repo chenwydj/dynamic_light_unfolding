@@ -29,13 +29,14 @@ single_unet_conv_add_vary_attention_Tresidual_bs32_BN_nonormDlayer5_4_final_raga
 --name bdd.seg10.confmask0.8_day100.255.night0.60_G.roll0.8.segargmax.edge.unet4.resblk6_latent.gamma_D.boundary.layer3.2_vgg0.3_180px_align \
 --continue_train: copy last .pth files to new name_folder
 --which_epoch 200
+--model single_multi_D \
 '''
 
 if opt.train:
 	os.system("python EnlightenGAN/train.py \
 		--dataroot /ssd1/chenwy/bdd100k/light_enhance_AB/seg_85/ \
 		--no_dropout \
-		--name bdd.seg10_gt.weight.0.1l1_day100.255.night0.60.classconstraint_G.softsoftflip.priors.roll0.unet4.resblk6_latent.gamma_D.boundary.layer3.2_vgg0_180px_align \
+		--name bdd.seg10_gt.weight.0.1l1_day100.255.night0.60.classconstraint_G.softsoftflip.dyn.priors.fixed.roll0.unet4.resblk6_latent.gamma_D.multi.layer3.2_vgg0_180px_align \
 		--model single \
 		--dataset_mode unaligned \
 		--which_model_netG sid_unet_res_resize \

@@ -12,6 +12,7 @@ import numpy as np
 from skimage import color, feature
 from skimage.filters import gaussian
 from scipy.ndimage import gaussian_filter
+from sklearn.cluster import KMeans
 
 
 def pad_tensor(input):
@@ -78,6 +79,10 @@ class UnalignedDataset(BaseDataset):
             priors.append(torch.Tensor(prior))
         self.priors = torch.stack(priors, 0)
         #######################################################
+        # kmeans cluster on seg class density #######################
+        seg_class_density = np.load("/ssd1/chenwy/bdd100k/seg_class_density_probs_train_day.npy")[:, 1:]
+        self.cluster = KMeans(n_clusters=5)
+        self.cluster.fit(seg_class_density)
 
         ##############################
         # self.dir_A = os.path.join(opt.dataroot)#, opt.phase + 'A')
@@ -143,6 +148,7 @@ class UnalignedDataset(BaseDataset):
         # A_img = A_image
         # B_img = B_image
         # priors = self.priors
+        # category_A = 1
         # A_npy = np.array(A_img)
         # B_npy = np.array(B_img)
 
@@ -231,7 +237,7 @@ class UnalignedDataset(BaseDataset):
                 mask = np.array(mask.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))).astype('int32') # cropped mask for light_enhance_AB/seg
                 unique, counts = np.unique(mask, return_counts=True)
                 # calculate class density prob. vector
-                unique[unique == 255] = -1; unique += 1; prob_A = np.zeros(20); prob_A[unique] = counts/counts.sum()
+                unique[unique == 255] = -1; unique += 1; prob_A = np.zeros(20); prob_A[unique] = counts/counts.sum(); prob_A = prob_A[1:]
                 # select by class diversity
                 # if len(unique) < 2 or (counts / counts.sum()).max() > 0.7: n_try += 1; continue
                 mask = self._mask_transform(mask)
@@ -240,10 +246,12 @@ class UnalignedDataset(BaseDataset):
                 mask_B = np.array(mask_B.crop((x2, y2, x2+self.opt.fineSize, y2+self.opt.fineSize))).astype('int32') # cropped mask_B for light_enhance_AB/seg
                 unique, counts = np.unique(mask_B, return_counts=True)
                 # calculate class density prob. vector
-                unique[unique == 255] = -1; unique += 1; prob_B = np.zeros(20); prob_B[unique] = counts/counts.sum()
+                unique[unique == 255] = -1; unique += 1; prob_B = np.zeros(20); prob_B[unique] = counts/counts.sum(); prob_B = prob_B[1:]
                 # compare & threshold class density prob. vector
                 if (((prob_A - prob_B) ** 2).mean()) ** 0.5 > 0.08: continue
 
+                category_A = self.cluster.predict(prob_A[1:].reshape(1, -1))
+                # boundary weights for L1 loss based on neighbor unique pixels
                 A_boundary = Image.open(os.path.join("/ssd1/chenwy/bdd100k/seg_luminance/0_100_boundary/", self.opt.phase, os.path.splitext(A_path.split("/")[-1])[0] + '.png'))
                 A_boundary = np.array(A_boundary.crop((x1, y1, x1+self.opt.fineSize, y1+self.opt.fineSize))).astype('float32')
                 A_boundary = torch.from_numpy(A_boundary).unsqueeze(0)
@@ -273,7 +281,7 @@ class UnalignedDataset(BaseDataset):
         A_gray_blur = gaussian(A_npy, sigma=2, multichannel=True)
         r,g,b = A_gray_blur[:, :, 0], A_gray_blur[:, :, 1], A_gray_blur[:, :, 2]
         A_gray_blur = 0.299*r+0.587*g+0.114*b
-        edges_A = torch.unsqueeze(torch.from_numpy(feature.canny(A_gray_blur, sigma=2).astype("float32")), 0)
+        # edges_A = torch.unsqueeze(torch.from_numpy(feature.canny(A_gray_blur, sigma=2).astype("float32")), 0)
 
         A_img = self.transform(A_img)
         # A_img_border = self.transform(A_img_border)
@@ -321,7 +329,8 @@ class UnalignedDataset(BaseDataset):
                 'A_paths': A_path, 'B_paths': B_path, 'mask': mask,
                 # 'A_border': A_img_border, 'A_gray_border': A_gray_border,
                 # 'A_Lab': A_Lab, 'gray_mask': gray_mask
-                'A_gt': A_gt, 'A_boundary': A_boundary, 'edges_A': edges_A, 'priors': priors
+                'A_gt': A_gt, 'A_boundary': A_boundary,# 'edges_A': edges_A, 
+                'priors': priors, 'category': category_A
                 }
 
     def __len__(self):

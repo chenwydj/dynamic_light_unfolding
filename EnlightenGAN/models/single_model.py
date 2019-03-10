@@ -39,6 +39,9 @@ class SingleModel(BaseModel):
         BaseModel.initialize(self, opt)
 
         self.use_seg_D = False
+        self.multi_D = True
+        self.adv_image = 1 if 'images' in self.opt.name else 1
+        self.mIoU_delta_mean = 0
 
         nb = opt.batchSize
         size = opt.fineSize
@@ -48,15 +51,14 @@ class SingleModel(BaseModel):
         self.input_img = self.Tensor(nb, opt.input_nc, size, size)
         self.input_A_gray = self.Tensor(nb, 1, size, size)
         self.mask = torch.cuda.LongTensor(nb, size, size)
-        self.edges_A = torch.cuda.FloatTensor(nb, 1, size, size)
+        # self.edges_A = torch.cuda.FloatTensor(nb, 1, size, size)
         # self.seg_index = torch.LongTensor([0, 2, 8, 10, 11, 13]).cuda()
         self.seg_index = torch.LongTensor([0, 1, 2, 5, 8, 9, 10, 11, 13, 14, 15]).cuda()
+        self.fixed_index = torch.LongTensor([0, 1, 2, 3, 4, 8, 10]).cuda()
+        self.dynamic_index = torch.LongTensor([5, 6, 7, 9, 11, 12, 13, 14, 15, 16, 17, 18]).cuda()
         self.A_gt = self.Tensor(nb, opt.input_nc, size, size)
         self.A_boundary = self.Tensor(nb, 1, size, size)
         self.priors = self.Tensor(nb, 19, size, size)
-
-        self.adv_image = 1 if 'images' in self.opt.name else 0.5
-        self.mIoU_delta_mean = 0
 
         if opt.vgg > 0:
             self.vgg_loss = networks.PerceptualLoss(opt)
@@ -87,9 +89,15 @@ class SingleModel(BaseModel):
 
         if self.isTrain:
             use_sigmoid = opt.no_lsgan
-            self.netD_A = networks.define_D(opt.output_nc, opt.ndf,
-                                            opt.which_model_netD,
-                                            opt.n_layers_D, opt.norm, use_sigmoid, self.gpu_ids, False)
+            if not self.multi_D:
+                self.netD_A = networks.define_D(opt.output_nc, opt.ndf,
+                                                opt.which_model_netD,
+                                                opt.n_layers_D, opt.norm, use_sigmoid, self.gpu_ids, False)
+            else:
+                self.netD_As = [networks.define_D(opt.output_nc, opt.ndf,
+                                                opt.which_model_netD,
+                                                opt.n_layers_D, opt.norm, use_sigmoid, self.gpu_ids, False)
+                                                for i in range(5)] # 0: road; 2: building; 8: vegetation; 10:sky; 13: car
             if self.use_seg_D:
                 self.netD_A_Seg = networks.define_D(19, opt.ndf,
                                                 opt.which_model_netD,
@@ -146,9 +154,14 @@ class SingleModel(BaseModel):
             # initialize optimizers
             self.optimizer_G = torch.optim.Adam(self.netG_A.parameters(),
                                                 lr=opt.lr, betas=(opt.beta1, 0.999))
-            self.optimizer_D_A = torch.optim.Adam(self.netD_A.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
-            if self.use_seg_D:
-                self.optimizer_D_A_Seg = torch.optim.Adam(self.netD_A_Seg.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+            if not self.multi_D:
+                self.optimizer_D_A = torch.optim.Adam(self.netD_A.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+            else:
+                self.optimizer_D_A = torch.optim.Adam(
+                    list(self.netD_As[0].parameters()) + list(self.netD_As[1].parameters()) + list(self.netD_As[2].parameters()) + list(self.netD_As[3].parameters()) + list(self.netD_As[4].parameters()),
+                    lr=opt.lr, betas=(opt.beta1, 0.999))
+            # if self.use_seg_D:
+            #     self.optimizer_D_A_Seg = torch.optim.Adam(self.netD_A_Seg.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             if self.opt.patchD:
                 self.optimizer_D_P = torch.optim.Adam(self.netD_P.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
                 if self.use_seg_D:
@@ -158,7 +171,10 @@ class SingleModel(BaseModel):
         networks.print_network(self.netG_A)
         # networks.print_network(self.netG_B)
         if self.isTrain:
-            networks.print_network(self.netD_A)
+            if not self.multi_D:
+                networks.print_network(self.netD_A)
+            else:
+                networks.print_network(self.netD_As[0])
             if self.use_seg_D:
                 networks.print_network(self.netD_A_Seg)
             if self.opt.patchD:
@@ -180,6 +196,7 @@ class SingleModel(BaseModel):
         input_A = input['A' if AtoB else 'B']
         input_img = input['input_img']
         input_A_gray = input['A_gray']
+
         self.input_A.resize_(input_A.size()).copy_(input_A)
         self.input_A_gray.resize_(input_A_gray.size()).copy_(input_A_gray)
         if domainB:
@@ -188,10 +205,12 @@ class SingleModel(BaseModel):
         self.input_img.resize_(input_img.size()).copy_(input_img)
         self.image_paths = input['A_paths' if AtoB else 'B_paths']
         self.mask.resize_(input['mask'].size()).copy_(input['mask'])
-        self.edges_A.resize_(input['edges_A'].size()).copy_(input['edges_A'])
+        # self.edges_A.resize_(input['edges_A'].size()).copy_(input['edges_A'])
         self.A_gt.resize_(input['A_gt'].size()).copy_(input['A_gt'])
         self.A_boundary.resize_(input['A_boundary'].size()).copy_(input['A_boundary'])
         self.priors.resize_(input['priors'].size()).copy_(input['priors'])
+        self.category = input['category']
+
 
     def set_input_A(self, A, A_gray, edges_A):
         self.input_A.resize_(A.size()).copy_(A)
@@ -236,7 +255,9 @@ class SingleModel(BaseModel):
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, one_hot(seg(self.real_A)[0].argmax(1), 19), self.edges_A)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, (self.real_A_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray)
-            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, F.softmax(F.softmax(self.real_A_Seg, dim=1)), self.priors)
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, F.softmax(F.softmax(self.real_A_Seg, dim=1)), self.priors)
+            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_A, self.real_A_gray, torch.index_select(F.softmax(F.softmax(self.real_A_Seg, dim=1)), 1, self.dynamic_index), torch.index_select(self.priors, 1, self.fixed_index))
+            self.fake_B = self.fake_B.clamp(-1, 1)
             # self.fake_B_Seg = seg(self.fake_B.clamp(-1, 1))[0]
             self.fake_B_Seg = (F.softmax(seg(self.fake_B.clamp(-1, 1))[0], dim=1) + F.softmax(seg(self.fake_B.clamp(-1, 1).flip(3))[0], dim=1)) / 2
             # for _ in range(0): # 3roll/100epoch/6batch for softmax, 8/80/15 for one_hot
@@ -293,7 +314,8 @@ class SingleModel(BaseModel):
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, torch.index_select(F.softmax(self.real_A_Seg, dim=1), 1, self.seg_index), self.edges_A)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, torch.index_select(one_hot(self.real_A_Seg.argmax(1), 19), 1, self.seg_index), self.edges_A)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, F.softmax(self.real_A_Seg, dim=1), self.edges_A)
-            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, F.softmax(F.softmax(self.real_A_Seg, dim=1)), self.priors)
+            # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, F.softmax(F.softmax(self.real_A_Seg, dim=1)), self.priors)
+            self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, torch.index_select(F.softmax(F.softmax(self.real_A_Seg, dim=1)), 1, self.dynamic_index), torch.index_select(self.priors, 1, self.fixed_index))
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, one_hot(self.real_A_Seg.argmax(1), 19), self.edges_A)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray, (self.real_A_Seg >= 0.425).type(torch.cuda.FloatTensor), self.edges_A)
             # self.fake_B, self.latent_real_A = self.netG_A.forward(self.real_img, self.real_A_gray)
@@ -320,11 +342,11 @@ class SingleModel(BaseModel):
                     w_offset = random.randint(0, max(0, w - self.opt.patchSize - 1))
                     h_offset = random.randint(0, max(0, h - self.opt.patchSize - 1))
                     unique, counts = np.unique(self.mask[i, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize].detach().cpu().numpy().astype('int32'), return_counts=True)
-                    if len(unique) >= 2 and (counts / counts.sum()).max() <= 0.7:
-                        self.fake_patch[i] = self.fake_B[i,:, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize]
-                        self.real_patch[i] = self.real_B[i,:, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize]
-                        self.input_patch[i] = self.real_A[i,:, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize]
-                        break
+                    # if len(unique) >= 2 and (counts / counts.sum()).max() <= 0.7:
+                    self.fake_patch[i] = self.fake_B[i,:, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize]
+                    self.real_patch[i] = self.real_B[i,:, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize]
+                    self.input_patch[i] = self.real_A[i,:, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize]
+                    break
 
             if self.use_seg_D:
                 self.fake_patch_Seg = seg(self.fake_patch.clamp(-1, 1))[0]
@@ -349,11 +371,11 @@ class SingleModel(BaseModel):
                         w_offset = random.randint(0, max(0, w - self.opt.patchSize - 1))
                         h_offset = random.randint(0, max(0, h - self.opt.patchSize - 1))
                         unique, counts = np.unique(self.mask[i, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize].detach().cpu().numpy().astype('int32'), return_counts=True)
-                        if len(unique) >= 2 and (counts / counts.sum()).max() <= 0.7:
-                            self.fake_patch_tmp[i] = self.fake_B[i,:, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize]
-                            self.real_patch_tmp[i] = self.real_B[i,:, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize]
-                            self.input_patch_tmp[i] = self.real_A[i,:, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize]
-                            break
+                        # if len(unique) >= 2 and (counts / counts.sum()).max() <= 0.7:
+                        self.fake_patch_tmp[i] = self.fake_B[i,:, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize]
+                        self.real_patch_tmp[i] = self.real_B[i,:, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize]
+                        self.input_patch_tmp[i] = self.real_A[i,:, h_offset:h_offset + self.opt.patchSize, w_offset:w_offset + self.opt.patchSize]
+                        break
                 self.fake_patch_1.append(self.fake_patch_tmp)
                 self.real_patch_1.append(self.real_patch_tmp)
                 self.input_patch_1.append(self.input_patch_tmp)
@@ -365,23 +387,46 @@ class SingleModel(BaseModel):
 
     def backward_G(self, epoch, seg_criterion=None, A_gt=None):
         # self.loss_G_A = torch.zeros(1).cuda()
-        pred_fake = self.netD_A.forward(self.fake_B)
-        if self.use_seg_D:
-            pred_fake_Seg = self.netD_A_Seg.forward(self.fake_B_Seg)
-        if self.opt.use_wgan:
-            self.loss_G_A = (self.adv_image * -pred_fake.mean())
+        if not self.multi_D:
+            pred_fake = self.netD_A.forward(self.fake_B)
             if self.use_seg_D:
-                self.loss_G_A += -pred_fake_Seg.mean()
-        elif self.opt.use_ragan:
-            pred_real = self.netD_A.forward(self.real_B)
-            self.loss_G_A = (self.adv_image * ((self.criterionGAN(pred_real - torch.mean(pred_fake), False) + self.criterionGAN(pred_fake - torch.mean(pred_real), True)) / 2))
-            if self.use_seg_D:
-                pred_real_Seg = self.netD_A_Seg.forward(self.real_B_Seg)
-                self.loss_G_A += (self.criterionGAN(pred_real_Seg - torch.mean(pred_fake_Seg), False) + self.criterionGAN(pred_fake_Seg - torch.mean(pred_real_Seg), True)) / 2
+                pred_fake_Seg = self.netD_A_Seg.forward(self.fake_B_Seg)
+            if self.opt.use_wgan:
+                self.loss_G_A = (self.adv_image * -pred_fake.mean())
+                if self.use_seg_D:
+                    self.loss_G_A += -pred_fake_Seg.mean()
+            elif self.opt.use_ragan:
+                pred_real = self.netD_A.forward(self.real_B)
+                self.loss_G_A = (self.adv_image * ((self.criterionGAN(pred_real - torch.mean(pred_fake), False) + self.criterionGAN(pred_fake - torch.mean(pred_real), True)) / 2))
+                if self.use_seg_D:
+                    pred_real_Seg = self.netD_A_Seg.forward(self.real_B_Seg)
+                    self.loss_G_A += (self.criterionGAN(pred_real_Seg - torch.mean(pred_fake_Seg), False) + self.criterionGAN(pred_fake_Seg - torch.mean(pred_real_Seg), True)) / 2
+            else:
+                self.loss_G_A = (self.adv_image * self.criterionGAN(pred_fake, True))
+                if self.use_seg_D:
+                    self.loss_G_A += self.criterionGAN(pred_fake_Seg, True)
         else:
-            self.loss_G_A = (self.adv_image * self.criterionGAN(pred_fake, True))
-            if self.use_seg_D:
-                self.loss_G_A += self.criterionGAN(pred_fake_Seg, True)
+            self.loss_G_A = 0
+            for c in range(5):
+                # select by category; if empty: tensor([])
+                if (self.category == c).nonzero().size(0) == 0: continue
+                pred_fake = self.netD_As[c].forward(torch.index_select(self.fake_B, 0, (self.category == c).nonzero().view(-1).type(torch.cuda.LongTensor)))
+                # if self.use_seg_D:
+                #     pred_fake_Seg = self.netD_A_Seg.forward(self.fake_B_Seg)
+                if self.opt.use_wgan:
+                    self.loss_G_A += (self.adv_image * -pred_fake.mean())
+                    # if self.use_seg_D:
+                    #     self.loss_G_A += -pred_fake_Seg.mean()
+                elif self.opt.use_ragan:
+                    pred_real = self.netD_As[c].forward(torch.index_select(self.real_B, 0, (self.category == c).nonzero().view(-1).type(torch.cuda.LongTensor)))
+                    self.loss_G_A += (self.adv_image * ((self.criterionGAN(pred_real - torch.mean(pred_fake), False) + self.criterionGAN(pred_fake - torch.mean(pred_real), True)) / 2))
+                    # if self.use_seg_D:
+                    #     pred_real_Seg = self.netD_A_Seg.forward(self.real_B_Seg)
+                    #     self.loss_G_A += (self.criterionGAN(pred_real_Seg - torch.mean(pred_fake_Seg), False) + self.criterionGAN(pred_fake_Seg - torch.mean(pred_real_Seg), True)) / 2
+                else:
+                    self.loss_G_A += (self.adv_image * self.criterionGAN(pred_fake, True))
+                    # if self.use_seg_D:
+                    #     self.loss_G_A += self.criterionGAN(pred_fake_Seg, True)
         
         loss_G_A = 0
         if self.opt.patchD:
@@ -523,11 +568,18 @@ class SingleModel(BaseModel):
         return loss_D
 
     def backward_D_A(self):
-        fake_B = self.fake_B_pool.query(self.fake_B)
+        # fake_B = self.fake_B_pool.query(self.fake_B)
         fake_B = self.fake_B
-        self.loss_D_A = (self.adv_image * self.backward_D_basic(self.netD_A, self.real_B, fake_B, True))
-        if self.use_seg_D:
-            self.loss_D_A += self.backward_D_basic(self.netD_A_Seg, self.real_B_Seg, self.fake_B_Seg, True)
+        if not self.multi_D:
+            self.loss_D_A = (self.adv_image * self.backward_D_basic(self.netD_A, self.real_B, fake_B, True))
+        else:
+            self.loss_D_A = 0
+            for c in range(5):
+                # select by category; if empty: tensor([])
+                if (self.category == c).nonzero().size(0) == 0: continue
+                self.loss_D_A += (self.adv_image * self.backward_D_basic(self.netD_As[c], torch.index_select(self.real_B, 0, (self.category == c).nonzero().view(-1).type(torch.cuda.LongTensor)), torch.index_select(fake_B, 0, (self.category == c).nonzero().view(-1).type(torch.cuda.LongTensor)), True))
+        # if self.use_seg_D:
+        #     self.loss_D_A += self.backward_D_basic(self.netD_A_Seg, self.real_B_Seg, self.fake_B_Seg, True)
         self.loss_D_A.backward()
     
     def backward_D_P(self):
@@ -652,9 +704,13 @@ class SingleModel(BaseModel):
 
     def save(self, label):
         self.save_network(self.netG_A, 'G_A', label, self.gpu_ids)
-        self.save_network(self.netD_A, 'D_A', label, self.gpu_ids)
-        if self.use_seg_D:
-            self.save_network(self.netD_A_Seg, 'D_A_Seg', label, self.gpu_ids)
+        if not self.multi_D:
+            self.save_network(self.netD_A, 'D_A', label, self.gpu_ids)
+        else:
+            for c in range(5):
+                self.save_network(self.netD_As[c], 'D_A'+str(c), label, self.gpu_ids)
+        # if self.use_seg_D:
+        #     self.save_network(self.netD_A_Seg, 'D_A_Seg', label, self.gpu_ids)
         if self.opt.patchD:
             self.save_network(self.netD_P, 'D_P', label, self.gpu_ids)
             if self.use_seg_D:

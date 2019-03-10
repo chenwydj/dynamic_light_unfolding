@@ -19,6 +19,10 @@ def create_model(opt):
         # assert(opt.dataset_mode == 'unaligned')
         from .single_model import SingleModel
         model = SingleModel()
+    elif opt.model == 'single_multi_D':
+        # assert(opt.dataset_mode == 'unaligned')
+        from .single_model_multiD import SingleModel
+        model = SingleModel()
     elif opt.model == 'temp':
         # assert(opt.dataset_mode == 'unaligned')
         from .temp_model import TempModel
